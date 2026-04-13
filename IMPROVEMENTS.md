@@ -134,3 +134,49 @@ Added `artist_found` boolean to response when an artist name is provided. `True`
 
 - `python3 analyze.py` — ✅ ran, model retrained. Recommended values from audio-only model: danceability 0.640, energy 0.653, loudness -6.532 dB, speechiness 0.080, acousticness 0.221, instrumentalness 0.028, liveness 0.162, valence 0.469, tempo 120 BPM.
 - `python3 APP.py` — ✅ server running on port 8080.
+
+---
+
+## CODE REVIEW — Security & Quality Audit (2026-04-13)
+
+> Automated review of APP.py, analyze.py, index.html.
+> CRITICAL and HIGH issues fixed in the same session (see status below).
+
+### CRITICAL
+
+| # | File | Location | Issue | Status |
+|---|------|----------|-------|--------|
+| C1 | `APP.py` | L168 | **Unsafe file extension from `upload.filename`** — no allowlist; `.py`/`.pkl` files pass through to librosa | ✅ Fixed |
+| C2 | `APP.py` | L271 | **`debug=True` in `app.run()`** — Werkzeug interactive debugger = RCE if server reachable | ✅ Fixed |
+| C3 | `APP.py` | L178, 266 | **Raw `str(exc)` in API responses** — leaks file paths, library versions, temp file names | ✅ Fixed |
+
+### HIGH
+
+| # | File | Location | Issue | Status |
+|---|------|----------|-------|--------|
+| H1 | `APP.py` | L49–147 | `_extract_audio_features` is 98 lines — exceeds 50-line limit | ✅ Fixed |
+| H2 | `APP.py` | — | No `MAX_CONTENT_LENGTH` — server buffers full upload before size check fires | ✅ Fixed |
+| H3 | `APP.py` | L27 | `pickle.load()` on unverified file — tampered model executes arbitrary code at startup | ✅ Fixed |
+| H4 | `analyze.py` | L16 | No `if __name__ == "__main__"` guard — full training runs on import | ✅ Fixed |
+| H5 | `index.html` | L1749, 1916 | `innerHTML` with server-derived feature names — XSS if model.pkl is replaced | ✅ Fixed |
+| H6 | `index.html` | L1768 | `console.error` in production predict path — leaks stack traces to browser console | ✅ Fixed |
+
+### MEDIUM
+
+| # | File | Issue | Status |
+|---|------|-------|--------|
+| M1 | `APP.py` | `static_folder="."` serves model.pkl, CSVs, source files at `/static/` | ✅ Fixed |
+| M2 | `APP.py` | `major_p /= ...` mutates constant in-place — data race if threaded | ✅ Fixed |
+| M3 | `index.html` | File `<input>` has no `<label>` — accessibility | ✅ Fixed |
+| M4 | `index.html` | "Clear" button missing `aria-label` | ✅ Fixed |
+| M5 | `index.html` | `renderFeatureCards` defined but never called — dead code | ✅ Fixed |
+| M6 | `index.html` | `if (data.error) return;` swallows errors silently — no user feedback | ✅ Fixed |
+
+### LOW
+
+| # | File | Issue | Status |
+|---|------|-------|--------|
+| L1 | `analyze.py` | 20+ `print()` calls — should use `logging` | ✅ Fixed |
+| L2 | `APP.py` | Magic numbers without named constants | ✅ Fixed |
+| L3 | `APP.py` | `classifier` loaded from pickle but never used | ✅ Fixed |
+| L4 | `APP.py` | No type annotations on function signatures | ✅ Fixed |
