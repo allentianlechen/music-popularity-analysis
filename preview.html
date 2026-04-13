@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Preview — Song Popularity Predictor</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Azeret+Mono:wght@300;400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #080810;
+    --surface: #0f0f1a;
+    --border:  #1e1e30;
+    --accent:  #c8f135;
+    --accent2: #7c3aed;
+    --text:    #e8e8f0;
+    --muted:   #9090a8;
+    --danger:  #f87171;
+    --warn:    #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    padding: 64px 48px 56px;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .hero-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 80% at 75% 50%, rgba(124,58,237,0.14) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 15% 80%, rgba(200,241,53,0.06) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .eq-bars {
+    position: absolute; right: 48px; bottom: 0;
+    display: flex; align-items: flex-end; gap: 5px;
+    opacity: 0.1; height: 100%;
+  }
+  .eq-bar {
+    width: 7px;
+    background: linear-gradient(to top, var(--accent2), var(--accent));
+    border-radius: 4px 4px 0 0;
+    animation: eq-bounce var(--dur, 1s) ease-in-out infinite alternate;
+  }
+  @keyframes eq-bounce {
+    from { height: var(--min, 20px); }
+    to   { height: var(--max, 80px); }
+  }
+  .hero-content { position: relative; max-width: 680px; }
+  .hero-eyebrow {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    letter-spacing: 0.25em; text-transform: uppercase; color: var(--accent);
+    margin-bottom: 20px; display: flex; align-items: center; gap: 12px;
+  }
+  .hero-eyebrow::before {
+    content: ''; display: block; width: 28px; height: 1px; background: var(--accent);
+  }
+  h1 {
+    font-family: 'Syne', sans-serif; font-size: clamp(30px, 4.5vw, 56px);
+    font-weight: 800; line-height: 1.05; letter-spacing: -0.03em; margin-bottom: 18px;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .hero-desc {
+    font-size: 15px; color: var(--muted); line-height: 1.8;
+    max-width: 540px; margin-bottom: 36px; font-weight: 300;
+  }
+  .hero-desc strong { color: var(--text); font-weight: 500; }
+  .steps-paths { display: flex; flex-direction: column; gap: 10px; }
+  .steps-path { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; font-size: 14px; color: var(--muted); font-weight: 300;
+  }
+  .step:not(:last-child)::after { content: '→'; margin: 0 16px; color: var(--border); font-size: 16px; }
+  .step-num {
+    font-family: 'Azeret Mono', monospace; font-size: 12px; font-weight: 500;
+    color: var(--accent); background: rgba(200,241,53,0.1);
+    border: 1px solid rgba(200,241,53,0.25); border-radius: 5px;
+    padding: 3px 8px; flex-shrink: 0; letter-spacing: 0.05em;
+  }
+
+  /* ── UPLOAD SECTION ── */
+  .upload-section {
+    width: 100%; border-bottom: 1px solid var(--border);
+    padding: 28px 48px; background: rgba(15,15,26,0.6);
+  }
+  .upload-section-inner { max-width: 860px; margin: 0 auto; }
+  .upload-title {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    letter-spacing: 0.25em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+  }
+  .drop-zone {
+    border: 1.5px dashed var(--border); border-radius: 14px;
+    padding: 36px 32px; text-align: center; cursor: pointer;
+  }
+  .drop-zone-icon { font-size: 26px; margin-bottom: 8px; }
+  .drop-zone-text { font-family: 'Azeret Mono', monospace; font-size: 13px; color: var(--muted); }
+  .drop-zone-sub { font-size: 13px; color: var(--muted); opacity: 0.5; margin-top: 4px; }
+
+  /* ── MAIN CONTENT — single column ── */
+  .main-content { max-width: 860px; margin: 0 auto; padding: 0 48px; }
+
+  /* ── SCORE CARD ── */
+  .score-card {
+    background: var(--surface); border: 1px solid rgba(200,241,53,0.25);
+    border-radius: 20px; padding: 28px 28px 24px;
+    margin: 48px auto 24px; max-width: 480px;
+    position: relative; overflow: hidden;
+  }
+  .score-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(200,241,53,0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .score-label {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    letter-spacing: 0.25em; text-transform: uppercase; color: var(--muted); margin-bottom: 20px;
+  }
+  .gauge-wrapper { display: flex; flex-direction: column; align-items: center; margin-bottom: 14px; }
+  .gauge-svg { width: 180px; height: 180px; overflow: visible; }
+  .gauge-track { fill: none; stroke: var(--border); stroke-width: 9; }
+  .gauge-fill {
+    fill: none; stroke: url(#gaugeGrad); stroke-width: 9; stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    stroke-dasharray: 439.82; stroke-dashoffset: 128; /* ~70% filled */
+  }
+  .gauge-num {
+    font-family: 'Syne', sans-serif; font-size: 48px; font-weight: 800;
+    fill: var(--text); text-anchor: middle; dominant-baseline: middle; letter-spacing: -0.03em;
+  }
+  .gauge-slash { font-family: 'Azeret Mono', monospace; font-size: 13px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; }
+  .tier-badge-wrap { display: flex; justify-content: center; margin: 8px 0 4px; }
+  .tier-badge {
+    font-family: 'Azeret Mono', monospace; font-size: 12px; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 4px 14px; border-radius: 20px;
+    border: 1px solid #c8f135; color: #c8f135; background: rgba(200,241,53,0.1);
+  }
+  .score-verdict {
+    font-size: 13px; color: var(--muted); text-align: center;
+    padding: 10px 16px; background: rgba(255,255,255,0.03);
+    border-radius: 8px; border: 1px solid var(--border); font-weight: 300;
+  }
+
+  /* ── INSIGHTS (Image #2 style) ── */
+  .insights-card {
+    background: transparent; border: none;
+    padding: 0; margin-bottom: 32px;
+  }
+  .insights-title {
+    font-family: 'Azeret Mono', monospace; font-size: 11px;
+    letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 4px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--border); line-height: 1.8;
+  }
+  .insight-row {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 22px 0; border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .insight-row:last-child { border-bottom: none; }
+  .insight-top { display: flex; justify-content: space-between; align-items: center; }
+  .insight-feat {
+    text-transform: capitalize; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 20px; font-weight: 500; letter-spacing: -0.01em;
+  }
+  .insight-tag {
+    font-family: 'Azeret Mono', monospace; font-size: 11px; letter-spacing: 0.1em;
+    padding: 5px 14px; border-radius: 6px; text-transform: uppercase;
+    white-space: nowrap; font-weight: 500;
+  }
+  .tag-above { background: rgba(200,241,53,0.12); color: var(--accent); border: 1px solid rgba(200,241,53,0.25); }
+  .tag-below { background: rgba(248,113,113,0.12); color: var(--danger); border: 1px solid rgba(248,113,113,0.25); }
+  .tag-avg   { background: rgba(107,107,128,0.12); color: var(--muted);  border: 1px solid var(--border); }
+  .insight-compare { display: flex; align-items: center; gap: 10px; }
+  .cmp-label {
+    font-family: 'Azeret Mono', monospace; font-size: 12px; color: var(--muted);
+    width: 32px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .cmp-track {
+    flex: 1; height: 7px; background: var(--border);
+    border-radius: 4px; overflow: hidden;
+  }
+  .cmp-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+  .cmp-fill.is-user { background: var(--accent); }
+  .cmp-fill.is-avg  { background: rgba(144,144,168,0.5); }
+  .cmp-val {
+    font-family: 'Azeret Mono', monospace; font-size: 14px;
+    color: var(--text); width: 44px; text-align: right; flex-shrink: 0;
+  }
+
+  /* ── EDUCATIONAL SECTION ── */
+  .edu-section {
+    margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--border);
+    padding-bottom: 80px;
+  }
+  .edu-section-title {
+    font-family: 'Azeret Mono', monospace; font-size: 11px;
+    letter-spacing: 0.25em; text-transform: uppercase; color: var(--muted); margin-bottom: 20px;
+  }
+  .model-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+  }
+  .stat-item { display: flex; flex-direction: column; gap: 3px; }
+  .stat-key {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+  }
+  .stat-val { font-family: 'Azeret Mono', monospace; font-size: 13px; color: var(--text); font-weight: 500; }
+  .accuracy-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 20px; font-size: 13px; color: var(--muted); line-height: 1.8;
+    font-weight: 300; margin-bottom: 16px;
+  }
+  .accuracy-box strong { color: var(--text); }
+  .imp-title {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    letter-spacing: 0.25em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 12px; padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .imp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .imp-feat-name {
+    font-family: 'Azeret Mono', monospace; font-size: 12px; color: var(--muted);
+    width: 140px; flex-shrink: 0; text-align: right; text-transform: capitalize;
+    letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .imp-bar-bg { flex: 1; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .imp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 3px;
+  }
+  .imp-pct {
+    font-family: 'Azeret Mono', monospace; font-size: 12px;
+    color: var(--muted); width: 30px; flex-shrink: 0; text-align: right;
+  }
+
+  /* ── SECTION DIVIDER ── */
+  .section-divider {
+    text-align: center; padding: 24px 0; color: var(--muted);
+    font-family: 'Azeret Mono', monospace; font-size: 11px; letter-spacing: 0.15em;
+    border-top: 2px dashed rgba(200,241,53,0.2); margin: 0 48px;
+    color: rgba(200,241,53,0.5);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ── -->
+<header class="hero">
+  <div class="hero-bg"></div>
+  <div class="eq-bars" id="eq-bars"></div>
+  <div class="hero-content">
+    <div class="hero-eyebrow">Music Analytics Lab</div>
+    <h1>Will Your Song<br><em>Hit or Miss?</em></h1>
+    <p class="hero-desc">
+      A <strong>Random Forest model</strong> trained on <strong>90,000 Spotify tracks</strong>
+      reveals which audio features drive popularity. Upload your track and the
+      model scores it instantly.
+    </p>
+    <div class="steps-paths">
+      <div class="steps-path">
+        <div class="step"><span class="step-num">01</span> Upload your track</div>
+        <div class="step"><span class="step-num">02</span> Audio features extracted</div>
+        <div class="step"><span class="step-num">03</span> See your popularity score</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── UPLOAD ── -->
+<section class="upload-section">
+  <div class="upload-section-inner">
+    <div class="upload-title">Upload Your Track for Instant Analysis</div>
+    <div class="drop-zone">
+      <div class="drop-zone-icon">🎵</div>
+      <div class="drop-zone-text">Drag &amp; drop your audio file here, or click to browse</div>
+      <div class="drop-zone-sub">Supports MP3 · WAV · FLAC · M4A</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── DIVIDER: shows where results begin after upload ── -->
+<div class="section-divider">▼ &nbsp; results appear here after upload &nbsp; ▼</div>
+
+<!-- ── RESULTS SECTION ── -->
+<div class="main-content">
+
+  <!-- Score card -->
+  <div class="score-card">
+    <div class="score-label">Predicted Popularity Score</div>
+    <div class="gauge-wrapper">
+      <svg class="gauge-svg" viewBox="0 0 160 160">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%"   stop-color="#7c3aed"/>
+            <stop offset="100%" stop-color="#c8f135"/>
+          </linearGradient>
+        </defs>
+        <circle class="gauge-track" cx="80" cy="80" r="70"/>
+        <circle class="gauge-fill"  cx="80" cy="80" r="70"/>
+        <text class="gauge-num"   x="80" y="74">71</text>
+        <text class="gauge-slash" x="80" y="100">/100</text>
+      </svg>
+    </div>
+    <div class="tier-badge-wrap">
+      <span class="tier-badge">Good appeal</span>
+    </div>
+    <div class="score-verdict">
+      Strong audio profile — adding an artist name improves prediction accuracy.
+    </div>
+  </div>
+
+  <!-- Feature Insights (Image #2 style) -->
+  <div class="insights-card">
+    <div class="insights-title">Feature Insights — Your values vs. dataset average</div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Tempo</span>
+        <span class="insight-tag tag-above">Above average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:72%"></div></div>
+        <span class="cmp-val">144</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:51%"></div></div>
+        <span class="cmp-val">122</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Energy</span>
+        <span class="insight-tag tag-above">Above average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:82%"></div></div>
+        <span class="cmp-val">0.82</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:59%"></div></div>
+        <span class="cmp-val">0.59</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Valence</span>
+        <span class="insight-tag tag-above">Above average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:88%"></div></div>
+        <span class="cmp-val">0.88</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:47%"></div></div>
+        <span class="cmp-val">0.47</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Acousticness</span>
+        <span class="insight-tag tag-above">Above average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:77%"></div></div>
+        <span class="cmp-val">0.77</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:33%"></div></div>
+        <span class="cmp-val">0.33</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Danceability</span>
+        <span class="insight-tag tag-below">Below average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:50%"></div></div>
+        <span class="cmp-val">0.50</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:56%"></div></div>
+        <span class="cmp-val">0.56</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Speechiness</span>
+        <span class="insight-tag tag-above">Above average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:68%"></div></div>
+        <span class="cmp-val">0.68</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:9%"></div></div>
+        <span class="cmp-val">0.09</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Loudness</span>
+        <span class="insight-tag tag-avg">Average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:64%"></div></div>
+        <span class="cmp-val">−7.2</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:62%"></div></div>
+        <span class="cmp-val">−8.0</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Liveness</span>
+        <span class="insight-tag tag-below">Below average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:12%"></div></div>
+        <span class="cmp-val">0.12</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:20%"></div></div>
+        <span class="cmp-val">0.20</span>
+      </div>
+    </div>
+
+    <div class="insight-row">
+      <div class="insight-top">
+        <span class="insight-feat">Instrumentalness</span>
+        <span class="insight-tag tag-avg">Average</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">You</span>
+        <div class="cmp-track"><div class="cmp-fill is-user" style="width:4%"></div></div>
+        <span class="cmp-val">0.04</span>
+      </div>
+      <div class="insight-compare">
+        <span class="cmp-label">Avg</span>
+        <div class="cmp-track"><div class="cmp-fill is-avg" style="width:8%"></div></div>
+        <span class="cmp-val">0.08</span>
+      </div>
+    </div>
+
+  </div><!-- end insights-card -->
+
+  <!-- Educational section -->
+  <div class="edu-section">
+    <div class="edu-section-title">About the Model &amp; Dataset</div>
+
+    <div class="model-grid">
+      <div class="stat-item">
+        <span class="stat-key">Model</span>
+        <span class="stat-val">Random Forest</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-key">Trees</span>
+        <span class="stat-val">100</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-key">R² Score</span>
+        <span class="stat-val">0.42</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-key">Mean Error</span>
+        <span class="stat-val">±11.3 pts</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-key">Audio-only R²</span>
+        <span class="stat-val">0.18</span>
+      </div>
+      <div class="stat-item" style="grid-column:span 2">
+        <span class="stat-key">Training Data</span>
+        <span class="stat-val">~90,000 Spotify tracks</span>
+      </div>
+    </div>
+
+    <div class="accuracy-box">
+      <strong>Model accuracy:</strong> R² = 0.42<br>
+      Audio features alone explain ~18% — artist fame adds the remaining ~24%.<br>
+      The ~58% unexplained variance comes from playlist placement, release timing,
+      and marketing — factors this tool cannot measure.<br>
+      Mean prediction error: ±11.3 popularity points.
+    </div>
+
+    <div class="imp-title">Feature Importance (full model)</div>
+    <div class="imp-row"><span class="imp-feat-name">artist avg popularity</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:100%"></div></div><span class="imp-pct">48%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">duration min</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:22%"></div></div><span class="imp-pct">11%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">loudness</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:16%"></div></div><span class="imp-pct">8%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">energy</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:13%"></div></div><span class="imp-pct">6%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">danceability</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:11%"></div></div><span class="imp-pct">5%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">acousticness</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:10%"></div></div><span class="imp-pct">5%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">tempo</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:8%"></div></div><span class="imp-pct">4%</span></div>
+    <div class="imp-row"><span class="imp-feat-name">valence</span><div class="imp-bar-bg"><div class="imp-bar-fill" style="width:7%"></div></div><span class="imp-pct">3%</span></div>
+  </div>
+
+</div><!-- end main-content -->
+
+<script>
+  const EQ_HEIGHTS = [28,52,78,44,90,58,34,72,48,88,38,64,84,50,30,70,46,82,40,60];
+  const ec = document.getElementById('eq-bars');
+  EQ_HEIGHTS.forEach((h, i) => {
+    const bar = document.createElement('div');
+    bar.className = 'eq-bar';
+    const minH = Math.max(10, Math.round(h * 0.25));
+    const dur  = (0.6 + Math.random() * 0.95).toFixed(2);
+    bar.style.cssText = `--min:${minH}px;--max:${h}px;--dur:${dur}s;animation-delay:${(i*0.07).toFixed(2)}s`;
+    ec.appendChild(bar);
+  });
+</script>
+</body>
+</html>

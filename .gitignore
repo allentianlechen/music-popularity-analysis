@@ -1,0 +1,24 @@
+# Large data files — download from Kaggle (Spotify Tracks Dataset)
+dataset.csv
+cleaned.csv
+archive.zip
+
+# Trained model — regenerate with: python3 analyze.py
+model.pkl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

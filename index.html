@@ -1,0 +1,2012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Song Popularity Predictor — Music Analytics</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Azeret+Mono:wght@300;400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #080810;
+    --surface:  #0f0f1a;
+    --border:   #1e1e30;
+    --accent:   #c8f135;
+    --accent2:  #7c3aed;
+    --text:     #e8e8f0;
+    --muted:    #9090a8;
+    --danger:   #f87171;
+    --warn:     #f59e0b;
+
+    /* Gauge gradient stops — updated by JS based on score */
+    --g-start: #7c3aed;
+    --g-end:   #c8f135;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    padding: 64px 48px 56px;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 80% at 75% 50%, rgba(124,58,237,0.14) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 15% 80%, rgba(200,241,53,0.06) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  /* Animated EQ bars */
+  .eq-bars {
+    position: absolute;
+    right: 48px;
+    bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+    opacity: 0.1;
+    height: 100%;
+  }
+
+  .eq-bar {
+    width: 7px;
+    background: linear-gradient(to top, var(--accent2), var(--accent));
+    border-radius: 4px 4px 0 0;
+    animation: eq-bounce var(--dur, 1s) ease-in-out infinite alternate;
+  }
+
+  @keyframes eq-bounce {
+    from { height: var(--min, 20px); }
+    to   { height: var(--max, 80px); }
+  }
+
+  .hero-content { position: relative; max-width: 680px; }
+
+  .hero-eyebrow {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .hero-eyebrow::before {
+    content: '';
+    display: block;
+    width: 28px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(30px, 4.5vw, 56px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 18px;
+  }
+
+  h1 em { font-style: normal; color: var(--accent); }
+
+  .hero-desc {
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.8;
+    max-width: 540px;
+    margin-bottom: 36px;
+    font-weight: 300;
+  }
+  .hero-desc strong { color: var(--text); font-weight: 500; }
+
+  .steps {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 300;
+  }
+  .step:not(:last-child)::after {
+    content: '→';
+    margin: 0 16px;
+    color: var(--border);
+    font-size: 16px;
+  }
+  .step-num {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    background: rgba(200,241,53,0.1);
+    border: 1px solid rgba(200,241,53,0.25);
+    border-radius: 5px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── LAYOUT ── */
+  .layout {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 48px;
+  }
+
+  @media (max-width: 960px) {
+    .layout { padding: 0 24px; }
+    .hero { padding: 40px 24px 40px; }
+    .eq-bars { display: none; }
+  }
+
+  /* ── SLIDERS PANEL (hidden — still in DOM as data store for upload flow) ── */
+  .sliders-panel {
+    display: none;
+  }
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .section-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .btn-optimize {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    border-radius: 7px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+  }
+  .btn-optimize:hover { opacity: 0.85; transform: translateY(-1px); }
+  .btn-optimize:active { transform: translateY(0); opacity: 1; }
+  .btn-optimize:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  .btn-optimize:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .btn-optimize svg { flex-shrink: 0; }
+
+  .section-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .section-legend {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 14px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 3px;
+  }
+
+  /* Slider card */
+  .slider-group {
+    margin-bottom: 0;
+    padding: 22px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    opacity: 0;
+    transform: translateY(10px);
+    animation: slideIn 0.35s ease forwards;
+  }
+  .slider-group:last-child { border-bottom: none; }
+
+  @keyframes slideIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 7px;
+  }
+
+  .slider-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: capitalize;
+    letter-spacing: -0.01em;
+  }
+
+  .slider-value {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    min-width: 64px;
+    text-align: right;
+  }
+
+  .impact-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .impact-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: 40px;
+  }
+  .importance-bar-bg {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .importance-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), rgba(124,58,237,0.6));
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  .slider-desc {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    line-height: 1.55;
+    font-weight: 300;
+  }
+
+  /* Range input */
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) var(--fill-pct, 50%),
+      var(--border) var(--fill-pct, 50%),
+      var(--border) 100%
+    );
+    outline: none;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  input[type=range]::-moz-range-progress { height: 2px; background: var(--accent); border-radius: 2px; }
+  input[type=range]::-moz-range-track { height: 2px; background: var(--border); border-radius: 2px; }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 0 0 3px rgba(200,241,53,0.15);
+  }
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 7px rgba(200,241,53,0.18);
+  }
+  input[type=range]:active::-webkit-slider-thumb {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 9px rgba(200,241,53,0.1);
+  }
+  input[type=range]:focus-visible { outline: none; }
+  input[type=range]:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px rgba(200,241,53,0.45), 0 0 0 7px rgba(200,241,53,0.15);
+  }
+  input[type=range]:focus-visible::-moz-range-thumb {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  /* ── RESULT PANEL ── */
+  .result-panel {
+    padding: 40px 0 80px;
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  /* ── SCORE CARD ── */
+  .score-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 28px 24px;
+    margin: 0 auto 24px;
+    max-width: 480px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.5s;
+  }
+  .score-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(200,241,53,0.04) 0%, transparent 70%);
+    pointer-events: none;
+    transition: opacity 0.5s;
+  }
+  .score-card.is-hit { border-color: rgba(200,241,53,0.25); }
+  .score-card.is-hit::before {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(200,241,53,0.12) 0%, transparent 70%);
+    opacity: 1;
+  }
+
+  .score-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  /* Circular gauge */
+  .gauge-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .gauge-svg {
+    width: 180px;
+    height: 180px;
+    overflow: visible;
+  }
+
+  .gauge-track {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 9;
+  }
+
+  .gauge-fill {
+    fill: none;
+    stroke: url(#gaugeGrad);
+    stroke-width: 9;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .gauge-tier-badge {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    fill: var(--muted);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    transition: fill 0.4s;
+  }
+
+  .gauge-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 48px;
+    font-weight: 800;
+    fill: var(--text);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    letter-spacing: -0.03em;
+    transition: fill 0.4s;
+  }
+
+  .gauge-slash {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    fill: var(--muted);
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
+  /* Tier pills below gauge */
+  .tier-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .tier-pill {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: rgba(255,255,255,0.02);
+    transition: all 0.35s;
+    cursor: default;
+  }
+
+  .tier-pill.active-fire {
+    color: var(--accent);
+    background: rgba(200,241,53,0.1);
+    border-color: rgba(200,241,53,0.3);
+  }
+  .tier-pill.active-solid {
+    color: #5eead4;
+    background: rgba(94,234,212,0.1);
+    border-color: rgba(94,234,212,0.3);
+  }
+  .tier-pill.active-mod {
+    color: var(--warn);
+    background: rgba(245,158,11,0.1);
+    border-color: rgba(245,158,11,0.3);
+  }
+  .tier-pill.active-niche {
+    color: var(--muted);
+    background: rgba(107,107,128,0.12);
+    border-color: rgba(107,107,128,0.3);
+  }
+  .tier-pill.active-low {
+    color: var(--danger);
+    background: rgba(248,113,113,0.1);
+    border-color: rgba(248,113,113,0.3);
+  }
+
+  .score-verdict {
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    padding: 10px 16px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    transition: color 0.3s, background 0.3s, border-color 0.3s;
+    font-weight: 300;
+    line-height: 1.4;
+  }
+
+  /* ── INSIGHTS ── */
+  .insights-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 32px;
+  }
+
+  .insights-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.8;
+  }
+
+  .insight-row {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 22px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .insight-row:last-child { border-bottom: none; }
+
+  .insight-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .insight-feat {
+    text-transform: capitalize;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .insight-desc {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 300;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .insight-tag {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    padding: 5px 14px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .tag-above { background: rgba(200,241,53,0.1);  color: var(--accent); border: 1px solid rgba(200,241,53,0.2); }
+  .tag-below { background: rgba(248,113,113,0.1); color: var(--danger); border: 1px solid rgba(248,113,113,0.2); }
+  .tag-avg   { background: rgba(107,107,128,0.12); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Mini comparison bar */
+  .insight-compare {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cmp-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    width: 32px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .cmp-track {
+    flex: 1;
+    height: 7px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .cmp-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+  .cmp-fill.is-user { background: var(--accent); }
+  .cmp-fill.is-avg  { background: var(--muted); }
+  .cmp-val {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+    width: 44px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* ── MODEL STATS ── */
+  .model-info {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 12px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease;
+  }
+  .model-info.is-visible { opacity: 1; visibility: visible; }
+  .stat-item { display: flex; flex-direction: column; gap: 3px; }
+  .stat-key {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .stat-val {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* ── LOADING ── */
+  .loading {
+    text-align: center;
+    padding: 80px 0;
+    color: var(--muted);
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    line-height: 2;
+  }
+  .dot { display: inline-block; animation: blink 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0; }
+    40%           { opacity: 1; }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeIn 0.3s ease forwards; }
+
+  /* ── SKELETON ── */
+  @keyframes skeleton-shimmer {
+    0%   { background-position: -400px 0; }
+    100% { background-position:  400px 0; }
+  }
+  .skeleton-row {
+    height: 14px;
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      var(--border) 25%,
+      rgba(255,255,255,0.06) 50%,
+      var(--border) 75%
+    );
+    background-size: 400px 100%;
+    animation: skeleton-shimmer 1.4s infinite;
+    margin-bottom: 10px;
+  }
+  .skeleton-row:last-child { margin-bottom: 0; }
+
+  /* ── MOBILE STICKY SCORE BAR ── */
+  .score-sticky-mobile {
+    display: none;
+  }
+  @media (max-width: 960px) {
+    .score-sticky-mobile {
+      display: flex;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      grid-column: 1 / -1;
+    }
+    .score-mini-label {
+      font-family: 'Azeret Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+    .score-mini-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    .score-mini-verdict {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+      flex: 1;
+      line-height: 1.3;
+    }
+  }
+
+  /* ── SCORE VERDICT MIN-HEIGHT ── */
+  .score-verdict {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── OPTIMAL PROFILE CARD ── */
+  .rec-profile-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .rec-profile-card.is-visible { display: block; }
+  .rec-profile-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rec-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .rec-row:last-child { border-bottom: none; }
+  .rec-feat-name {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    text-transform: capitalize;
+    color: var(--text);
+    flex: 0 0 110px;
+  }
+  .rec-bar-bg {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .rec-bar-fill {
+    height: 100%;
+    background: rgba(200,241,53,0.4);
+    border-radius: 3px;
+  }
+  .rec-val {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    flex: 0 0 64px;
+    text-align: right;
+  }
+  .rec-avg-val {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    flex: 0 0 60px;
+    text-align: right;
+  }
+
+  /* ── EDUCATIONAL SECTION ── */
+  .edu-section {
+    margin-top: 48px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+  }
+  .edu-section-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  /* ── COLLAPSIBLE SLIDERS ── */
+  #sliders-container {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.4s ease;
+  }
+  #sliders-container.is-open {
+    max-height: 4000px;
+  }
+
+  /* ── PREFERS REDUCED MOTION ── */
+  @media (prefers-reduced-motion: reduce) {
+    .eq-bar { animation: none; height: var(--max, 80px); opacity: 0.06; }
+    .slider-group { animation: none; opacity: 1; transform: none; }
+    .gauge-fill { transition: none; }
+    .fade-in { animation: none; }
+    .skeleton-row { animation: none; }
+    #sliders-container { transition: none; }
+  }
+
+  /* ── AUDIO UPLOAD SECTION ── */
+  .upload-section {
+    width: 100%;
+    border-bottom: 1px solid var(--border);
+    padding: 28px 48px;
+    background: rgba(15,15,26,0.6);
+  }
+  .upload-section-inner { max-width: 1400px; margin: 0 auto; }
+
+  .upload-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .drop-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 14px;
+    padding: 28px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(200,241,53,0.03);
+  }
+  .drop-zone.is-loading { pointer-events: none; opacity: 0.6; }
+
+  .drop-zone-icon { font-size: 26px; margin-bottom: 8px; }
+  .drop-zone-text {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .drop-zone-sub { font-size: 13px; color: var(--muted); opacity: 0.5; margin-top: 4px; }
+
+  .upload-spinner {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    padding: 12px 0;
+    letter-spacing: 0.06em;
+  }
+  .upload-spinner.is-visible { display: flex; }
+
+  .spinner-ring {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .upload-error {
+    display: none;
+    color: var(--danger);
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    padding: 8px 12px;
+    background: rgba(248,113,113,0.08);
+    border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 8px;
+    margin-top: 10px;
+  }
+  .upload-error.is-visible { display: block; }
+
+  /* Feature score cards */
+  .feature-cards-section { display: none; margin-top: 22px; }
+  .feature-cards-section.is-visible { display: block; }
+
+  .feature-cards-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .feature-cards-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .btn-clear {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-clear:hover { color: var(--text); border-color: var(--muted); }
+
+  .feature-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: slideIn 0.35s ease forwards;
+  }
+  .fc-name {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .fc-score {
+    font-family: 'Syne', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+  .fc-score.green { color: #4ade80; }
+  .fc-score.amber { color: var(--warn); }
+  .fc-score.red   { color: var(--danger); }
+  .fc-raw {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .fc-bar-bg { height: 3px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .fc-bar    { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  .fc-bar.green { background: #4ade80; }
+  .fc-bar.amber { background: var(--warn); }
+  .fc-bar.red   { background: var(--danger); }
+
+  .upload-summary {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    line-height: 1.5;
+    font-weight: 300;
+  }
+  .upload-summary strong { color: var(--text); }
+  .upload-disclaimer {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    opacity: 0.45;
+    margin-top: 8px;
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+
+  /* Artist + genre filter row */
+  .filter-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 150px;
+  }
+  .filter-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .filter-input, .filter-select {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .filter-input:focus, .filter-select:focus { border-color: var(--accent); }
+  .filter-input::placeholder { color: var(--muted); opacity: 0.6; }
+
+  /* Accuracy info card */
+  .accuracy-info {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.8;
+    font-weight: 300;
+  }
+  .accuracy-info.is-visible { display: block; }
+  .accuracy-info strong { color: var(--text); }
+
+  /* Feature importance chart */
+  .importance-chart { display: none; margin-top: 16px; }
+  .importance-chart.is-visible { display: block; }
+  .imp-title {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .imp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .imp-feat-name {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    width: 120px;
+    flex-shrink: 0;
+    text-align: right;
+    text-transform: capitalize;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .imp-bar-bg {
+    flex: 1;
+    height: 5px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .imp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+  .imp-pct {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    width: 30px;
+    flex-shrink: 0;
+    text-align: right;
+  }
+
+  /* Steps two-path layout */
+  .steps-paths { display: flex; flex-direction: column; gap: 10px; }
+  .steps-path {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .path-tag {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 12px;
+    color: var(--accent2);
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.25);
+    border-radius: 5px;
+    padding: 3px 9px;
+    margin-right: 14px;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 960px) {
+    .upload-section { padding: 20px 24px; }
+    .feature-cards-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ── -->
+<header class="hero">
+  <div class="hero-bg"></div>
+  <div class="eq-bars" aria-hidden="true" id="eq-bars"></div>
+
+  <div class="hero-content">
+    <div class="hero-eyebrow">Music Analytics Lab</div>
+    <h1>Will Your Song<br><em>Hit or Miss?</em></h1>
+    <p class="hero-desc">
+      A <strong>Random Forest model</strong> trained on <strong>90,000 Spotify tracks</strong>
+      reveals which audio features drive popularity. Upload your track and the
+      model scores it instantly.
+    </p>
+    <div class="steps-paths">
+      <div class="steps-path">
+        <div class="step"><span class="step-num">01</span> Upload your track</div>
+        <div class="step"><span class="step-num">02</span> Audio features extracted</div>
+        <div class="step"><span class="step-num">03</span> See your popularity score</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── AUDIO UPLOAD SECTION ── -->
+<section class="upload-section">
+  <div class="upload-section-inner">
+    <div class="upload-title">Upload Your Track for Instant Analysis</div>
+    <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
+         aria-label="Upload an audio file for analysis">
+      <input type="file" id="audio-file-input" accept="audio/*" style="display:none">
+      <div class="drop-zone-icon">🎵</div>
+      <div class="drop-zone-text">Drag & drop your audio file here, or click to browse</div>
+      <div class="drop-zone-sub">Supports MP3 · WAV · FLAC · M4A</div>
+    </div>
+    <div class="upload-spinner" id="upload-spinner">
+      <div class="spinner-ring"></div>
+      <span>Analyzing audio… <span style="opacity:0.55">~15 seconds</span></span>
+    </div>
+    <div class="upload-error" id="upload-error"></div>
+
+    <div class="feature-cards-section" id="feature-cards-section">
+      <div class="feature-cards-header">
+        <span class="feature-cards-title">How close each feature is to optimal</span>
+        <button class="btn-clear" onclick="clearUpload()">Clear</button>
+      </div>
+      <div class="feature-cards-grid" id="feature-cards-grid"></div>
+      <div class="upload-summary" id="upload-summary"></div>
+      <div class="upload-disclaimer" style="font-family:'Azeret Mono',monospace;font-size:11px;color:var(--muted);opacity:0.7;margin-top:10px;line-height:1.7;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.02);">
+        Feature scores show closeness to typical hit-track values — they do not directly predict popularity.<br>
+        Feature extraction is approximated via librosa and may differ from Spotify's own analysis.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── MAIN LAYOUT ── -->
+<div class="layout">
+
+  <!-- Mobile-only sticky score bar -->
+  <div class="score-sticky-mobile" id="score-sticky-mobile" aria-live="polite">
+    <div>
+      <div class="score-mini-label">Score</div>
+      <div class="score-mini-num" id="score-mini-num">—</div>
+    </div>
+    <div class="score-mini-verdict" id="score-mini-verdict">Upload a track to predict</div>
+  </div>
+
+  <!-- LEFT: Sliders -->
+  <div class="sliders-panel">
+    <div class="section-header">
+      <div class="section-header-left">
+        <button id="btn-toggle-sliders" onclick="toggleSliders()"
+                style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:0;"
+                aria-expanded="false" aria-controls="sliders-container">
+          <span class="section-label" style="pointer-events:none;">Manual Sliders</span>
+          <span id="toggle-chevron"
+                style="font-family:'Azeret Mono',monospace;font-size:12px;color:var(--muted);
+                       transition:transform 0.3s;display:inline-block;">▸</span>
+        </button>
+        <span class="section-legend" style="font-size:12px;color:var(--muted);font-family:'Azeret Mono',monospace;">
+          Share of audio impact
+        </span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <button class="btn-clear" id="btn-reset" onclick="resetSliders()" style="flex-shrink:0;">Reset</button>
+        <button class="btn-optimize" id="btn-optimize" disabled onclick="applyRecommended()">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1L7.5 4.5H11L8.5 6.8L9.5 10.5L6 8.5L2.5 10.5L3.5 6.8L1 4.5H4.5L6 1Z" fill="currentColor"/>
+          </svg>
+          Apply hit-track profile
+        </button>
+      </div>
+    </div>
+    <div id="optimize-note" style="display:none;font-family:'Azeret Mono',monospace;font-size:13px;color:var(--warn);background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6;">
+      Audio features set to typical hit-track values. Score reflects audio only — enter an artist name above to factor in artist fame, which is the model's strongest predictor.
+    </div>
+    <div class="filter-row">
+      <div class="filter-group">
+        <label class="filter-label" for="artist-input">Artist name (optional)</label>
+        <input type="text" class="filter-input" id="artist-input"
+               placeholder="e.g. Taylor Swift" autocomplete="off">
+        <div id="artist-status" style="font-family:'Azeret Mono',monospace;font-size:12px;min-height:14px;margin-top:3px;"></div>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label" for="genre-select">Genre — affects insights only</label>
+        <select class="filter-select" id="genre-select">
+          <option value="">All genres</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="sliders-container">
+      <div class="loading">Loading model<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+    </div>
+  </div>
+
+  <!-- Results (revealed after audio upload + predict) -->
+  <div class="result-panel" id="result-panel" style="display:none;">
+
+    <div class="score-card" id="score-card">
+      <div class="score-label">Predicted Popularity Score</div>
+
+      <div class="gauge-wrapper">
+        <svg class="gauge-svg" viewBox="0 0 160 160">
+          <defs>
+            <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#7c3aed" id="grad-start"/>
+              <stop offset="100%" stop-color="#c8f135" id="grad-end"/>
+            </linearGradient>
+          </defs>
+          <circle class="gauge-track" cx="80" cy="80" r="70"/>
+          <circle class="gauge-fill" cx="80" cy="80" r="70" id="gauge-fill"
+                  stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+          <text class="gauge-num" x="80" y="74" id="score-number">—</text>
+          <text class="gauge-slash" x="80" y="100">/100</text>
+        </svg>
+      </div>
+
+      <!-- Single tier badge — updated by JS -->
+      <div style="display:flex;justify-content:center;margin:8px 0 4px;">
+        <span id="tier-badge" style="font-family:'Azeret Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;padding:4px 14px;border-radius:20px;border:1px solid var(--border);color:var(--muted);background:transparent;transition:all 0.3s;">—</span>
+      </div>
+
+      <div class="score-verdict" id="score-verdict">
+        Upload a track to get a prediction
+      </div>
+
+      <!-- Legacy compat -->
+      <div id="score-bar" style="display:none"></div>
+    </div>
+
+    <div class="rec-profile-card" id="rec-profile-card">
+      <div class="rec-profile-title">Optimal Audio Profile</div>
+      <div id="rec-profile-list"></div>
+    </div>
+
+    <div class="insights-card" id="insights-card">
+      <div class="insights-title" id="insights-title">Feature Insights — Your values vs. dataset average</div>
+      <div id="insights-list">
+        <div class="skeleton-row" style="width:100%"></div>
+        <div class="skeleton-row" style="width:88%"></div>
+        <div class="skeleton-row" style="width:95%"></div>
+        <div class="skeleton-row" style="width:78%"></div>
+        <div class="skeleton-row" style="width:90%"></div>
+      </div>
+    </div>
+
+    <div class="edu-section">
+      <div class="edu-section-title">About the Model &amp; Dataset</div>
+      <div class="model-info" id="model-info"></div>
+      <div class="accuracy-info" id="accuracy-info"></div>
+      <div class="importance-chart" id="importance-chart"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ── EQ Bars ──
+  const EQ_HEIGHTS = [28,52,78,44,90,58,34,72,48,88,38,64,84,50,30,70,46,82,40,60];
+  const eqContainer = document.getElementById('eq-bars');
+  EQ_HEIGHTS.forEach((h, i) => {
+    const bar = document.createElement('div');
+    bar.className = 'eq-bar';
+    const minH = Math.max(10, Math.round(h * 0.25));
+    const dur  = (0.6 + Math.random() * 0.95).toFixed(2);
+    bar.style.cssText = `--min:${minH}px;--max:${h}px;--dur:${dur}s;animation-delay:${(i*0.07).toFixed(2)}s`;
+    eqContainer.appendChild(bar);
+  });
+
+  // ── Tier config ──
+  const TIERS = [
+    { min: 80, id: 'tier-hit',   cls: 'active-fire',  label: 'High potential',   numColor: '#c8f135' },
+    { min: 60, id: 'tier-solid', cls: 'active-solid',  label: 'Good appeal',      numColor: '#5eead4' },
+    { min: 40, id: 'tier-mod',   cls: 'active-mod',    label: 'Moderate reach',   numColor: '#f59e0b' },
+    { min: 20, id: 'tier-niche', cls: 'active-niche',  label: 'Niche audience',   numColor: '#6b6b80' },
+    { min:  0, id: 'tier-low',   cls: 'active-low',    label: 'Low signal',       numColor: '#f87171' },
+  ];
+
+  const CIRCUMFERENCE = 439.82; // 2π×70
+
+  const DESCRIPTIONS = {
+    danceability:     "How suitable the track is for dancing (rhythm, beat strength)",
+    energy:           "Perceptual intensity and activity — fast, loud, noisy = high energy",
+    loudness:         "Overall loudness in decibels (typically −60 to 0 dB)",
+    speechiness:      "Presence of spoken words — rap is high, classical is low",
+    acousticness:     "Confidence the track is acoustic (unplugged / no electronics)",
+    instrumentalness: "Predicts whether a track has no vocals",
+    liveness:         "Detects audience presence — higher = more likely a live recording",
+    valence:          "Musical positiveness — happy/euphoric = high, sad/angry = low",
+    tempo:            "Estimated beats per minute (BPM)",
+  };
+
+  let meta = null;
+  let debounceTimer = null;
+  let recommendedValues = null;
+  let uploadedFeatures = null;   // set when audio upload completes; null = no upload yet
+
+  async function loadMeta() {
+    try {
+      const [metaRes, genresRes] = await Promise.all([
+        fetch("/meta"),
+        fetch("/genres").catch(() => null),
+      ]);
+      meta = await metaRes.json();
+      recommendedValues = meta.recommended || null;
+      buildSliders(meta);
+      renderRecommendedProfile(meta);
+
+      // Populate genre dropdown
+      if (genresRes) {
+        const genreList = await genresRes.json().catch(() => []);
+        const genreSelect = document.getElementById("genre-select");
+        if (genreSelect && Array.isArray(genreList)) {
+          genreList.forEach(g => {
+            const opt = document.createElement("option");
+            opt.value = g;
+            opt.textContent = g;
+            genreSelect.appendChild(opt);
+          });
+        }
+      }
+
+      if (recommendedValues) {
+        document.getElementById("btn-optimize").disabled = false;
+      }
+
+      // Model stats card
+      const infoEl = document.getElementById("model-info");
+      infoEl.classList.add("is-visible");
+      const baseStr = meta.r2_base !== undefined
+        ? `<div class="stat-item"><span class="stat-key">Audio-only R²</span><span class="stat-val">${meta.r2_base}</span></div>`
+        : "";
+      infoEl.innerHTML = `
+        <div class="stat-item"><span class="stat-key">Model</span><span class="stat-val">Random Forest</span></div>
+        <div class="stat-item"><span class="stat-key">Trees</span><span class="stat-val">100</span></div>
+        <div class="stat-item"><span class="stat-key">R² Score</span><span class="stat-val">${meta.r2}</span></div>
+        <div class="stat-item"><span class="stat-key">Mean Error</span><span class="stat-val">±${meta.mae} pts</span></div>
+        ${baseStr}
+        <div class="stat-item" style="grid-column:span 2">
+          <span class="stat-key">Training Data</span>
+          <span class="stat-val">~90,000 Spotify tracks</span>
+        </div>
+      `;
+
+      // Accuracy narrative card (Task 3.1)
+      const accEl = document.getElementById("accuracy-info");
+      if (accEl) {
+        const r2Pct     = Math.round(meta.r2 * 100);
+        const basePct   = meta.r2_base !== undefined ? Math.round(meta.r2_base * 100) : null;
+        const artistPct = basePct !== null ? r2Pct - basePct : null;
+        const baseLine  = basePct !== null
+          ? `<br>Audio features alone explain ~${basePct}% — artist fame adds the remaining ~${artistPct}%.`
+          : "";
+        accEl.innerHTML =
+          `<strong>Model accuracy:</strong> R² = ${meta.r2}${baseLine}<br>` +
+          `The ~${100 - r2Pct}% unexplained variance comes from playlist placement, ` +
+          `release timing, and marketing — factors this tool cannot measure.<br>` +
+          `Mean prediction error: ±${meta.mae} popularity points.`;
+        accEl.classList.add("is-visible");
+      }
+
+      // Feature importance chart (Task 3.3)
+      renderImportanceChart(meta);
+
+      // Re-predict when artist or genre changes
+      const artistInput = document.getElementById("artist-input");
+      const genreSelectEl = document.getElementById("genre-select");
+      if (artistInput) {
+        artistInput.addEventListener("input", () => {
+          if (!uploadedFeatures) return;
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(predict, 300);
+        });
+      }
+      if (genreSelectEl) {
+        genreSelectEl.addEventListener("change", () => {
+          if (uploadedFeatures) predict();
+        });
+      }
+      // No startup predict — results shown only after upload
+    } catch (e) {
+      document.getElementById("sliders-container").innerHTML =
+        `<div class="loading" role="alert" style="color:#f87171">Could not connect to server.<br>Make sure APP.py is running on port 8080.</div>`;
+    }
+  }
+
+  function updateSliderFill(slider) {
+    const pct = ((parseFloat(slider.value) - parseFloat(slider.min)) /
+                 (parseFloat(slider.max)   - parseFloat(slider.min))) * 100;
+    slider.style.setProperty('--fill-pct', pct.toFixed(1) + '%');
+  }
+
+  function toggleSliders() {
+    const container = document.getElementById('sliders-container');
+    const chevron   = document.getElementById('toggle-chevron');
+    const btn       = document.getElementById('btn-toggle-sliders');
+    const isOpen    = container.classList.contains('is-open');
+    container.classList.toggle('is-open', !isOpen);
+    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+    if (btn)     btn.setAttribute('aria-expanded', String(!isOpen));
+  }
+
+  function renderRecommendedProfile(meta) {
+    const card = document.getElementById('rec-profile-card');
+    const list = document.getElementById('rec-profile-list');
+    if (!card || !list || !meta.recommended) return;
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+    list.innerHTML = sliderFeats.map(feat => {
+      const rec = meta.recommended[feat];
+      if (rec === undefined) return '';
+      const r    = meta.ranges[feat];
+      const span = (r.max - r.min) || 1;
+      const recPct = Math.round(((rec   - r.min) / span) * 100);
+      const isLoudness = feat === 'loudness';
+      const isTempo    = feat === 'tempo';
+      const fmtRec = isLoudness ? `${rec.toFixed(1)} dB`
+                   : isTempo    ? `${Math.round(rec)} BPM`
+                   : rec.toFixed(2);
+      const fmtAvg = isLoudness ? `${r.mean.toFixed(1)}`
+                   : isTempo    ? `${Math.round(r.mean)}`
+                   : r.mean.toFixed(2);
+      return `
+        <div class="rec-row">
+          <span class="rec-feat-name">${feat}</span>
+          <div class="rec-bar-bg">
+            <div class="rec-bar-fill" style="width:${recPct}%"></div>
+          </div>
+          <span class="rec-val">${fmtRec}</span>
+          <span class="rec-avg-val">avg ${fmtAvg}</span>
+        </div>`;
+    }).join('');
+    card.classList.add('is-visible');
+  }
+
+  function buildSliders(meta) {
+    const container = document.getElementById("sliders-container");
+    container.innerHTML = "";
+
+    // Only build sliders for the 9 user-controllable features
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+
+    const sorted = [...sliderFeats].sort(
+      (a, b) => (meta.importance[b] || 0) - (meta.importance[a] || 0)
+    );
+
+    const audioImpSum = sorted.reduce((s, f) => s + (meta.importance[f] || 0), 0) || 1;
+
+    sorted.forEach((feat, idx) => {
+      const r      = meta.ranges[feat];
+      const imp    = meta.importance[feat];
+      const impPct = Math.round((imp / audioImpSum) * 100);
+
+      const isLoudness = feat === "loudness";
+      const isTempo    = feat === "tempo";
+      const fmtVal = v => isLoudness ? `${v.toFixed(1)} dB`
+                        : isTempo    ? `${Math.round(v)} BPM`
+                        : v.toFixed(2);
+
+      const group = document.createElement("div");
+      group.className = "slider-group";
+      group.style.animationDelay = `${idx * 60}ms`;
+
+      group.innerHTML = `
+        <div class="slider-header">
+          <span class="slider-name">${feat}</span>
+          <span class="slider-value" id="val-${feat}">${fmtVal(r.mean)}</span>
+        </div>
+        <div class="impact-row">
+          <span class="impact-label">Impact</span>
+          <div class="importance-bar-bg">
+            <div class="importance-bar" style="width:${Math.min(impPct,100)}%"></div>
+          </div>
+          <span style="font-family:'Azeret Mono',monospace;font-size:12px;color:var(--muted);flex-shrink:0;width:28px;text-align:right;">${impPct}%</span>
+        </div>
+        <div class="slider-desc">${DESCRIPTIONS[feat] || ""}</div>
+        <input
+          type="range"
+          id="slider-${feat}"
+          aria-label="${feat} — ${DESCRIPTIONS[feat] || feat}"
+          aria-valuemin="${r.min}"
+          aria-valuemax="${r.max}"
+          aria-valuenow="${r.mean}"
+          min="${r.min}"
+          max="${r.max}"
+          step="${isTempo ? 1 : isLoudness ? 0.1 : 0.01}"
+          value="${r.mean}"
+        >
+      `;
+      container.appendChild(group);
+
+      const slider = group.querySelector(`#slider-${feat}`);
+      const valEl  = group.querySelector(`#val-${feat}`);
+      updateSliderFill(slider);
+
+      slider.addEventListener("input", () => {
+        valEl.textContent = fmtVal(parseFloat(slider.value));
+        slider.setAttribute('aria-valuenow', slider.value);
+        updateSliderFill(slider);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(predict, 120);
+      });
+    });
+  }
+
+  function updateTiers(score) {
+    const tier  = TIERS.find(t => score >= t.min);
+    const badge = document.getElementById('tier-badge');
+    if (badge) {
+      if (tier) {
+        badge.textContent = tier.label;
+        badge.style.color       = tier.numColor;
+        badge.style.borderColor = tier.numColor;
+        badge.style.background  = tier.numColor + '18';
+      } else {
+        badge.textContent = '—';
+        badge.style.color       = 'var(--muted)';
+        badge.style.borderColor = 'var(--border)';
+        badge.style.background  = 'transparent';
+      }
+    }
+    return tier;
+  }
+
+  async function predict() {
+    if (!meta) return;
+
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+
+    const body = {};
+
+    // Slider features — read from UI controls
+    sliderFeats.forEach(feat => {
+      const slider = document.getElementById(`slider-${feat}`);
+      body[feat] = slider ? parseFloat(slider.value) : (meta.ranges[feat] ? meta.ranges[feat].mean : 0);
+    });
+
+    // Non-slider features — use dataset mean (artist_avg_popularity handled server-side)
+    if (meta.features) {
+      meta.features.forEach(feat => {
+        if (!(feat in body) && feat !== "artist_avg_popularity") {
+          body[feat] = meta.ranges[feat] ? meta.ranges[feat].mean : 0;
+        }
+      });
+    }
+
+    // Optional artist name for server-side lookup
+    const artistInput = document.getElementById("artist-input");
+    if (artistInput && artistInput.value.trim()) {
+      body.artist = artistInput.value.trim();
+    }
+
+    // Optional genre for context-aware comparisons
+    const genreSelect = document.getElementById("genre-select");
+    if (genreSelect && genreSelect.value) {
+      body.genre = genreSelect.value;
+    }
+
+    try {
+      const res  = await fetch("/predict", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.error) return;
+
+      // Artist lookup feedback
+      const artistStatusEl = document.getElementById('artist-status');
+      if (artistStatusEl) {
+        const artistVal = document.getElementById('artist-input')?.value.trim();
+        if (!artistVal) {
+          artistStatusEl.textContent = '';
+        } else if (data.artist_found === true) {
+          artistStatusEl.style.color = '#4ade80';
+          artistStatusEl.textContent = '✓ Found in dataset';
+        } else if (data.artist_found === false) {
+          artistStatusEl.style.color = 'var(--warn)';
+          artistStatusEl.textContent = 'Not in dataset — using global average';
+        }
+      }
+
+      // Update insights title to reflect genre context
+      const insightsTitleEl = document.getElementById('insights-title');
+      if (insightsTitleEl) {
+        const selectedGenre = document.getElementById('genre-select')?.value;
+        insightsTitleEl.textContent = selectedGenre
+          ? `Feature Insights — Your values vs. ${selectedGenre} average`
+          : 'Feature Insights — Your values vs. dataset average';
+      }
+
+      const scoreEl   = document.getElementById("score-number");
+      const gaugeFill = document.getElementById("gauge-fill");
+      const verdictEl = document.getElementById("score-verdict");
+      const scoreCard = document.getElementById("score-card");
+
+      // Integer display
+      const scoreInt = Math.round(data.score);
+      scoreEl.textContent = scoreInt;
+
+      // Gauge fill
+      const offset = CIRCUMFERENCE - (data.score / 100) * CIRCUMFERENCE;
+      gaugeFill.style.strokeDashoffset = offset;
+
+      // Tier
+      const tier = updateTiers(scoreInt);
+      verdictEl.textContent = tier ? tier.label : "—";
+      scoreCard.className   = scoreInt >= 80 ? "score-card is-hit" : "score-card";
+
+      // Tint the score number on high scores
+      scoreEl.style.fill = scoreInt >= 70 ? "var(--accent)" : "var(--text)";
+
+      // Dynamic gauge gradient based on score
+      const gradStart = document.getElementById('grad-start');
+      const gradEnd   = document.getElementById('grad-end');
+      if (gradStart && gradEnd) {
+        if (scoreInt >= 80) {
+          gradStart.setAttribute('stop-color', '#a3e635');
+          gradEnd.setAttribute('stop-color', '#c8f135');
+        } else if (scoreInt < 20) {
+          gradStart.setAttribute('stop-color', '#f87171');
+          gradEnd.setAttribute('stop-color', '#ef4444');
+        } else {
+          gradStart.setAttribute('stop-color', '#7c3aed');
+          gradEnd.setAttribute('stop-color', '#c8f135');
+        }
+      }
+
+      // Update mobile sticky score bar
+      const miniNum     = document.getElementById('score-mini-num');
+      const miniVerdict = document.getElementById('score-mini-verdict');
+      if (miniNum)     miniNum.textContent     = scoreInt;
+      if (miniVerdict) miniVerdict.textContent = tier ? tier.label : '—';
+
+      // Insights with mini comparison bars
+      const insightsCard = document.getElementById("insights-card");
+      const insightsList = document.getElementById("insights-list");
+      insightsCard.classList.add("fade-in");
+
+      const sorted = Object.entries(data.insights).sort(
+        (a, b) => b[1].importance - a[1].importance
+      );
+
+      insightsList.innerHTML = sorted.map(([feat, info]) => {
+        const tagClass = info.direction === "above average" ? "tag-above"
+                       : info.direction === "below average" ? "tag-below"
+                       : "tag-avg";
+        const range    = meta.ranges[feat];
+        const span     = range.max - range.min || 1;
+        const userPct  = Math.round(((info.value - range.min) / span) * 100);
+        const avgPct   = Math.round(((info.avg  - range.min) / span) * 100);
+
+        const isLoudness = feat === "loudness";
+        const isTempo    = feat === "tempo";
+        const fmtV = v => isLoudness ? `${v.toFixed(1)}` : isTempo ? `${Math.round(v)}` : v.toFixed(2);
+
+        return `
+          <div class="insight-row">
+            <div class="insight-top">
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <span class="insight-feat">${feat}</span>
+                <span class="insight-desc">${DESCRIPTIONS[feat] || ''}</span>
+              </div>
+              <span class="insight-tag ${tagClass}">${info.direction}</span>
+            </div>
+            <div class="insight-compare">
+              <span class="cmp-label">You</span>
+              <div class="cmp-track"><div class="cmp-fill is-user" style="width:${userPct}%"></div></div>
+              <span class="cmp-val">${fmtV(info.value)}</span>
+            </div>
+            <div class="insight-compare">
+              <span class="cmp-label">Avg</span>
+              <div class="cmp-track"><div class="cmp-fill is-avg" style="width:${avgPct}%"></div></div>
+              <span class="cmp-val">${fmtV(info.avg)}</span>
+            </div>
+          </div>`;
+      }).join("");
+
+    } catch (e) {
+      console.error("Prediction failed:", e);
+    }
+  }
+
+  function resetSliders() {
+    if (!meta) return;
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+    sliderFeats.forEach(feat => {
+      const slider = document.getElementById(`slider-${feat}`);
+      const valEl  = document.getElementById(`val-${feat}`);
+      if (!slider || !meta.ranges[feat]) return;
+      const mean = meta.ranges[feat].mean;
+      slider.value = mean;
+      slider.setAttribute('aria-valuenow', mean);
+      updateSliderFill(slider);
+      if (valEl) {
+        const isLoudness = feat === "loudness";
+        const isTempo    = feat === "tempo";
+        valEl.textContent = isLoudness ? `${parseFloat(mean).toFixed(1)} dB`
+                          : isTempo    ? `${Math.round(mean)} BPM`
+                          : parseFloat(mean).toFixed(2);
+      }
+    });
+    const note = document.getElementById('optimize-note');
+    if (note) note.style.display = 'none';
+    predict();
+  }
+
+  function applyRecommended() {
+    if (!meta || !recommendedValues) return;
+    const btn = document.getElementById('btn-optimize');
+    btn.disabled = true;
+    const note = document.getElementById('optimize-note');
+    if (note) note.style.display = 'block';
+
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+
+    sliderFeats.forEach(feat => {
+      const slider = document.getElementById(`slider-${feat}`);
+      const valEl  = document.getElementById(`val-${feat}`);
+      if (!slider || !(feat in recommendedValues)) return;
+
+      const v = recommendedValues[feat];
+      slider.value = v;
+      slider.setAttribute('aria-valuenow', v);
+      updateSliderFill(slider);
+
+      const isLoudness = feat === "loudness";
+      const isTempo    = feat === "tempo";
+      valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
+                        : isTempo    ? `${Math.round(v)} BPM`
+                        : parseFloat(v).toFixed(2);
+    });
+    predict().finally(() => { btn.disabled = false; });
+  }
+
+  // ── FITNESS SCORE ──
+  function fitnessScore(feat, value) {
+    if (!meta || !meta.ranges[feat] || meta.recommended[feat] === undefined) return 50;
+    const r = meta.ranges[feat];
+    const rec = meta.recommended[feat];
+    const span = r.max - r.min || 1;
+    return Math.round(Math.max(0, Math.min(100,
+      (1 - Math.abs(value - rec) / span) * 100
+    )));
+  }
+
+  // ── FEATURE CARDS ──
+  function renderFeatureCards(features) {
+    const sliderFeats = meta ? (meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"]) : [];
+
+    const grid    = document.getElementById("feature-cards-grid");
+    const section = document.getElementById("feature-cards-section");
+    const summary = document.getElementById("upload-summary");
+
+    const needsImprovement = [];
+
+    grid.innerHTML = sliderFeats.map((feat, idx) => {
+      const value = features[feat];
+      if (value === undefined) return "";
+      const score      = fitnessScore(feat, value);
+      const colorClass = score >= 70 ? "green" : score >= 40 ? "amber" : "red";
+      const isLoudness = feat === "loudness";
+      const isTempo    = feat === "tempo";
+      const rawStr     = isLoudness ? `${value.toFixed(1)} dB`
+                       : isTempo    ? `${Math.round(value)} BPM`
+                       : value.toFixed(3);
+      if (score < 50) needsImprovement.push(feat);
+      return `
+        <div class="feature-card" style="animation-delay:${idx * 45}ms">
+          <div class="fc-name">${feat}</div>
+          <div class="fc-score ${colorClass}">${score}</div>
+          <div class="fc-raw">${rawStr}</div>
+          <div class="fc-bar-bg">
+            <div class="fc-bar ${colorClass}" style="width:${score}%"></div>
+          </div>
+        </div>`;
+    }).join("");
+
+    if (needsImprovement.length > 0) {
+      summary.innerHTML =
+        `<strong>${needsImprovement.length} feature${needsImprovement.length > 1 ? "s" : ""} need improvement:</strong> ` +
+        needsImprovement.join(", ");
+    } else {
+      summary.innerHTML = "<strong>All features are close to optimal!</strong> Great audio characteristics.";
+    }
+
+    section.classList.add("is-visible");
+  }
+
+  // ── CLEAR UPLOAD ──
+  function clearUpload() {
+    document.getElementById("feature-cards-section").classList.remove("is-visible");
+    document.getElementById("upload-error").classList.remove("is-visible");
+    uploadedFeatures = null;
+    const rp = document.getElementById('result-panel');
+    if (rp) rp.style.display = 'none';
+    if (!meta) return;
+    const sliderFeats = meta.slider_features ||
+      ["danceability","energy","loudness","speechiness","acousticness",
+       "instrumentalness","liveness","valence","tempo"];
+    sliderFeats.forEach(feat => {
+      const slider = document.getElementById(`slider-${feat}`);
+      if (!slider || !meta.ranges[feat]) return;
+      slider.value = meta.ranges[feat].mean;
+      slider.setAttribute("aria-valuenow", meta.ranges[feat].mean);
+      updateSliderFill(slider);
+    });
+  }
+
+  // ── IMPORTANCE CHART ──
+  function renderImportanceChart(meta) {
+    const chartEl = document.getElementById("importance-chart");
+    if (!chartEl) return;
+    const sorted = Object.entries(meta.importance)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12);
+    const maxImp = sorted[0][1];
+    chartEl.innerHTML =
+      `<div class="imp-title">Feature Importance</div>` +
+      sorted.map(([feat, imp]) =>
+        `<div class="imp-row">
+          <span class="imp-feat-name">${feat.replace(/_/g, " ")}</span>
+          <div class="imp-bar-bg">
+            <div class="imp-bar-fill" style="width:${Math.round(imp / maxImp * 100)}%"></div>
+          </div>
+          <span class="imp-pct">${Math.round(imp * 100)}%</span>
+        </div>`
+      ).join("");
+    chartEl.classList.add("is-visible");
+  }
+
+  // ── AUDIO UPLOAD ──
+  function setupAudioUpload() {
+    const dropZone  = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("audio-file-input");
+    const spinner   = document.getElementById("upload-spinner");
+    const errorEl   = document.getElementById("upload-error");
+    if (!dropZone || !fileInput) return;
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+    });
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropZone.classList.remove("drag-over");
+      const file = e.dataTransfer.files[0];
+      if (file) processAudioFile(file);
+    });
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (file) processAudioFile(file);
+      fileInput.value = "";
+    });
+
+    async function processAudioFile(file) {
+      errorEl.classList.remove("is-visible");
+      document.getElementById("feature-cards-section").classList.remove("is-visible");
+      dropZone.classList.add("is-loading");
+      spinner.classList.add("is-visible");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res  = await fetch("/analyze-audio", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.error) {
+          errorEl.textContent = data.error;
+          errorEl.classList.add("is-visible");
+          return;
+        }
+        const feats = data.features;
+        const sliderFeats = meta ? (meta.slider_features ||
+          ["danceability","energy","loudness","speechiness","acousticness",
+           "instrumentalness","liveness","valence","tempo"]) : [];
+
+        sliderFeats.forEach(feat => {
+          if (!(feat in feats)) return;
+          const slider = document.getElementById(`slider-${feat}`);
+          const valEl  = document.getElementById(`val-${feat}`);
+          if (!slider) return;
+          const v = feats[feat];
+          slider.value = v;
+          slider.setAttribute("aria-valuenow", v);
+          updateSliderFill(slider);
+          if (valEl) {
+            const isLoudness = feat === "loudness";
+            const isTempo    = feat === "tempo";
+            valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
+                              : isTempo    ? `${Math.round(v)} BPM`
+                              : parseFloat(v).toFixed(3);
+          }
+        });
+        uploadedFeatures = feats;
+        // Feature cards removed — results panel provides the full breakdown
+        await predict();
+        const rp = document.getElementById('result-panel');
+        if (rp) {
+          rp.style.display = 'block';
+          rp.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } catch (err) {
+        errorEl.textContent = `Upload failed: ${err.message}`;
+        errorEl.classList.add("is-visible");
+      } finally {
+        dropZone.classList.remove("is-loading");
+        spinner.classList.remove("is-visible");
+      }
+    }
+  }
+
+  setupAudioUpload();
+  loadMeta();
+</script>
+</body>
+</html>
