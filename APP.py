@@ -25,6 +25,21 @@ try:
 except ImportError:
     LIBROSA_AVAILABLE = False
 
+try:
+    import whisper as _whisper_lib
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
+
+try:
+    import torch
+    from demucs.apply import apply_model as _demucs_apply
+    from demucs.pretrained import get_model as _demucs_get_model
+    DEMUCS_AVAILABLE = True
+except ImportError:
+    DEMUCS_AVAILABLE = False
+
+
 # ── LOGGING ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -39,15 +54,21 @@ TEMPO_MAX_BPM: float         = 165.0
 TEMPO_START_BPM: int         = 100
 LOUDNESS_MIN_DB: float       = -60.0
 LOUDNESS_MAX_DB: float       = 0.0
-CENTROID_NORM_DIVISOR: float = 4000.0
-SPEECHINESS_DELTA_DIV: float = 9.0
-SPEECHINESS_ZCR_DIV: float   = 0.15
-INSTR_VAR_DIVISOR: float     = 300.0
-LIVENESS_CONTRAST_DIV: float = 15.0
+SILENCE_THRESHOLD_DB: float  = -50.0
 
 ALLOWED_AUDIO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 )
+
+# ── ML MODEL CONSTANTS ────────────────────────────────────────────────────────
+WHISPER_MODEL_SIZE: str    = "tiny"
+SPEECHINESS_WPS_SAT: float = 3.0          # words/sec that saturates speechiness to 1.0
+WHISPER_ANALYSIS_SEC: int  = 60
+
+DEMUCS_MODEL_NAME: str        = "htdemucs_6s"
+DEMUCS_ANALYSIS_SEC: int      = 20
+DEMUCS_VOCALS_SOURCE_IDX: int = 3         # vocal stem index in htdemucs_6s source order
+
 
 # Krumhansl-Kessler key profiles (immutable tuples — never mutated in-place)
 _MAJOR_PROFILE: tuple[float, ...] = (
@@ -84,154 +105,354 @@ except FileNotFoundError:
     logger.error("model.pkl not found. Run 'python3 analyze.py' first.")
     sys.exit(1)
 
-model           = payload["model"]
-features        = payload["features"]
-slider_features = payload.get("slider_features", features[:9])
-importance      = payload["importance"]
-ranges          = payload["ranges"]
-r2              = payload["r2"]
-mae             = payload["mae"]
-pred_min        = payload.get("pred_min", 0)
-pred_max        = payload.get("pred_max", 100)
-recommended     = payload.get("recommended", {})
-artist_lookup   = payload.get("artist_lookup", {})
-global_avg_pop  = payload.get("global_avg_popularity", 0)
-genre_means     = payload.get("genre_means", {})
+model            = payload["model"]
+features         = payload["features"]
+slider_features  = payload.get("slider_features", features[:9])
+importance       = payload["importance"]
+audio_importance = payload.get("audio_importance", importance)
+ranges           = payload["ranges"]
+r2               = payload["r2"]
+mae              = payload["mae"]
+pred_min         = payload.get("pred_min", 0)
+pred_max         = payload.get("pred_max", 100)
+recommended      = payload.get("recommended", {})
+global_avg_pop   = payload.get("global_avg_popularity", 0)
+genre_means      = payload.get("genre_means", {})
 # classifier is intentionally not extracted — tier is determined client-side
+
+
+def _audio_importance_normalized() -> dict[str, float]:
+    """Return audio_importance for slider_features only, renormalized to sum to 1.0."""
+    raw   = {f: audio_importance.get(f, 0.0) for f in slider_features}
+    total = sum(raw.values()) or 1.0
+    return {f: v / total for f, v in raw.items()}
+
+
+# ── ML MODEL LAZY LOADERS ─────────────────────────────────────────────────────
+
+_whisper_model = None
+_demucs_model  = None
+
+
+def _get_whisper_model():
+    """Lazy-load Whisper tiny model; cached after first call."""
+    global _whisper_model
+    if _whisper_model is None:
+        logger.info("Loading Whisper '%s' model (first use)…", WHISPER_MODEL_SIZE)
+        _whisper_model = _whisper_lib.load_model(WHISPER_MODEL_SIZE)
+        logger.info("Whisper model loaded.")
+    return _whisper_model
+
+
+def _get_demucs_model():
+    """Lazy-load Demucs htdemucs_6s model; cached after first call."""
+    global _demucs_model
+    if _demucs_model is None:
+        logger.info("Loading Demucs '%s' model (first use)…", DEMUCS_MODEL_NAME)
+        _demucs_model = _demucs_get_model(DEMUCS_MODEL_NAME)
+        _demucs_model.eval()
+        logger.info("Demucs model loaded.")
+    return _demucs_model
+
 
 
 # ── AUDIO FEATURE HELPERS ─────────────────────────────────────────────────────
 
 def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
-    """Return (tempo_bpm, onset_env). Uses tempogram autocorrelation; folds into [60,165]."""
+    """Return (tempo_bpm, beat_frames). Multi-stage disambiguation:
+    1. Windowed tempogram score (±8 % BPM window) replaces single-bin lookup.
+    2. Half-tempo preferred at ≥50 % relative support (down from 65 %).
+    3. Top-3 tempogram peaks used as tie-breaker when beat_track candidate is absent.
+    4. PLP cross-check: if PLP period agrees with half-tempo, prefer half-tempo.
+    """
+    tempo_bt, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    tempo_bt = float(np.atleast_1d(tempo_bt)[0])
+
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    tempo_val = float(np.atleast_1d(
-        librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=TEMPO_START_BPM)
-    )[0])
+    tg        = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr)
+    tg_freqs  = librosa.tempo_frequencies(tg.shape[0], sr=sr)
+    mean_tg   = np.mean(np.abs(tg), axis=1)
+
+    def _tg_score(bpm: float) -> float:
+        """Mean tempogram energy in a ±8 % BPM window (robust to spectral smearing)."""
+        lo   = bpm * 0.92
+        hi   = bpm * 1.08
+        mask = (tg_freqs >= lo) & (tg_freqs <= hi)
+        if not np.any(mask):
+            return float(mean_tg[int(np.argmin(np.abs(tg_freqs - bpm)))])
+        return float(np.mean(mean_tg[mask]))
+
+    half_bt = tempo_bt / 2.0
+
+    # ── Step 1: windowed half-tempo check at 50 % threshold ──────────────────
+    if (TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
+            and _tg_score(half_bt) >= _tg_score(tempo_bt) * 0.50):
+        tempo_val = half_bt
+    elif len(beat_frames) < 4:
+        tempo_val = float(np.atleast_1d(
+            librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=TEMPO_START_BPM)
+        )[0])
+    else:
+        tempo_val = tempo_bt
+
+    # ── Step 2: top-3 peak tie-breaker ───────────────────────────────────────
+    valid_mask  = (tg_freqs >= TEMPO_MIN_BPM) & (tg_freqs <= TEMPO_MAX_BPM)
+    valid_freqs = tg_freqs[valid_mask]
+    valid_tg    = mean_tg[valid_mask]
+    if len(valid_tg) >= 3:
+        top3_bpms = valid_freqs[np.argsort(valid_tg)[-3:][::-1]]
+        in_top3   = any(
+            abs(tempo_val - p) / (tempo_val + 1e-6) < 0.08 for p in top3_bpms
+        )
+        if not in_top3:
+            for cand in (half_bt, tempo_bt * 2.0):
+                if (TEMPO_MIN_BPM <= cand <= TEMPO_MAX_BPM
+                        and any(abs(cand - p) / (cand + 1e-6) < 0.08 for p in top3_bpms)):
+                    tempo_val = cand
+                    break
+            else:
+                tempo_val = float(top3_bpms[0])
+
+    # ── Step 3: PLP cross-check ───────────────────────────────────────────────
+    pulse  = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
+    hop    = 512
+    fps    = sr / hop
+    ac     = librosa.autocorrelate(pulse, max_size=len(pulse) // 2)
+    plp_period = float(np.argmax(ac[1:]) + 1)
+    plp_bpm    = 60.0 * fps / (plp_period + 1e-6)
+    while plp_bpm > TEMPO_MAX_BPM:
+        plp_bpm /= 2.0
+    while plp_bpm < TEMPO_MIN_BPM:
+        plp_bpm *= 2.0
+
+    if (abs(plp_bpm - tempo_bt) / (tempo_bt + 1e-6) > 0.15
+            and TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
+            and abs(plp_bpm - half_bt) / (half_bt + 1e-6) < 0.10):
+        tempo_val = half_bt
+
+    # ── Final fold-down safety net ────────────────────────────────────────────
     while tempo_val > TEMPO_MAX_BPM:
         tempo_val /= 2.0
     while tempo_val < TEMPO_MIN_BPM:
         tempo_val *= 2.0
-    return tempo_val, onset_env
+
+    return tempo_val, beat_frames
 
 
 def _compute_loudness(y: "np.ndarray") -> float:
-    """Loudness in dB, clipped to [-60, 0]."""
+    """Power-weighted active-frame loudness; excludes silence gaps below -50 dB."""
     rms = librosa.feature.rms(y=y)[0]
-    loudness = float(librosa.amplitude_to_db(np.mean(rms) + 1e-9))
+    db  = librosa.amplitude_to_db(rms + 1e-9)
+    active = db[db > SILENCE_THRESHOLD_DB]
+    loudness = float(np.mean(active)) if len(active) > 0 else float(np.mean(db))
     return float(np.clip(loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB))
 
 
-def _compute_energy(y: "np.ndarray") -> float:
-    """Energy [0,1]: RMS + spectral flatness, sqrt-stretched."""
+def _compute_energy(
+    y: "np.ndarray", stft: "np.ndarray", freqs: "np.ndarray"
+) -> float:
+    """Energy [0,1]: active loudness + HF energy ratio + spectral centroid."""
     rms = librosa.feature.rms(y=y)[0]
-    rms_mean      = float(np.mean(rms))
-    spec_flatness = float(np.mean(librosa.feature.spectral_flatness(y=y)))
-    energy_raw    = float(np.clip(rms_mean * 6 + spec_flatness * 0.5, 0, 1))
-    return float(np.clip(energy_raw ** 0.5, 0, 1))
+    db  = librosa.amplitude_to_db(rms + 1e-9)
+    active = db[db > SILENCE_THRESHOLD_DB]
+    loudness_db   = float(np.mean(active)) if len(active) > 0 else float(np.mean(db))
+    loudness_norm = float(np.clip((loudness_db - LOUDNESS_MIN_DB) / (-LOUDNESS_MIN_DB), 0.0, 1.0))
 
+    # High-frequency energy ratio (above 2 kHz), scaled so a typical loud track ≈ 0.5
+    hf_mask  = freqs >= 2000.0
+    total_e  = float(np.sum(stft ** 2)) + 1e-9
+    hf_ratio = float(np.clip(np.sum(stft[hf_mask] ** 2) / total_e * 4.0, 0.0, 1.0))
 
-def _compute_acousticness(y: "np.ndarray", sr: int) -> float:
-    """Acousticness [0,1]: centroid + rolloff + flatness; low values → electronic."""
-    spec_centroids  = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-    rolloff         = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)[0]
-    flatness_frames = librosa.feature.spectral_flatness(y=y)[0]
-    centroid_norm   = float(np.mean(spec_centroids)) / CENTROID_NORM_DIVISOR
-    rolloff_norm    = float(np.mean(rolloff)) / (sr / 2)
-    flatness_mean   = float(np.mean(flatness_frames))
-    return float(np.clip(
-        1 - (centroid_norm * 0.4 + rolloff_norm * 0.4 + flatness_mean * 10 * 0.2), 0, 1
-    ))
+    # Spectral centroid normalized to Nyquist
+    nyquist      = float(freqs[-1])
+    spec_centroid = float(np.sum(freqs[:, np.newaxis] * stft ** 2) / (total_e * nyquist))
+    centroid_norm = float(np.clip(spec_centroid, 0.0, 1.0))
+
+    return float(np.clip(loudness_norm * 0.5 + hf_ratio * 0.3 + centroid_norm * 0.2, 0.0, 1.0))
 
 
 def _compute_danceability(
-    onset_env: "np.ndarray", sr: int, tempo_val: float
+    y: "np.ndarray", sr: int, beat_frames: "np.ndarray"
 ) -> float:
-    """Danceability [0,1]: beat-period autocorrelation + single-frame regularity."""
-    tempo_hz     = tempo_val / 60.0
-    beat_lag     = int(sr / (512 * tempo_hz + 1e-6))
-    beat_lag     = max(1, min(beat_lag, len(onset_env) - 1))
-    ac_full      = librosa.autocorrelate(onset_env, max_size=beat_lag + 1)
-    beat_strength = float(ac_full[beat_lag] / (ac_full[0] + 1e-6)) if beat_lag < len(ac_full) else 0.0
-    regularity    = float(ac_full[1] / (ac_full[0] + 1e-6)) if len(ac_full) > 1 else 0.0
-    return float(np.clip(beat_strength * 0.7 + regularity * 0.3, 0, 1))
+    """Danceability [0,1]: IBI consistency + PLP strength."""
+    if len(beat_frames) >= 4:
+        beat_times  = librosa.frames_to_time(beat_frames, sr=sr)
+        ibis        = np.diff(beat_times)
+        ibi_cv      = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
+        ibi_score   = float(np.clip(1.0 - ibi_cv, 0.0, 1.0))
+    else:
+        ibi_score = 0.3
 
-
-def _compute_speechiness(
-    y: "np.ndarray", sr: int, mfccs: "np.ndarray"
-) -> float:
-    """Speechiness [0,1]: recalibrated MFCC delta + ZCR."""
-    mfcc_delta = librosa.feature.delta(mfccs[:5])
-    delta_mean = float(np.mean(np.abs(mfcc_delta)))
-    zcr_mean   = float(np.mean(librosa.feature.zero_crossing_rate(y)[0]))
-    return float(np.clip(
-        delta_mean / SPEECHINESS_DELTA_DIV * 0.6
-        + zcr_mean / SPEECHINESS_ZCR_DIV * 0.4,
-        0, 1
+    onset_env  = librosa.onset.onset_strength(y=y, sr=sr)
+    pulse      = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
+    # 75th-percentile / peak: more robust to sparse PLP responses than mean/peak
+    plp_score  = float(np.clip(
+        np.percentile(pulse, 75) / (np.max(pulse) + 1e-6), 0.0, 1.0
     ))
 
+    return float(np.clip(ibi_score * 0.5 + plp_score * 0.5, 0.0, 1.0))
 
-def _compute_instrumentalness(mfccs: "np.ndarray") -> float:
-    """Instrumentalness [0,1]: absolute temporal variance of MFCCs 1–4."""
-    mfcc_abs_var = float(np.mean(np.var(mfccs[1:5], axis=1)))
-    return float(np.clip(1.0 - mfcc_abs_var / INSTR_VAR_DIVISOR, 0, 1))
+
+def _compute_speechiness_whisper(y: "np.ndarray", sr: int) -> float:
+    """Speechiness [0,1] via Whisper tiny: word rate from transcription.
+
+    Transcribes the first WHISPER_ANALYSIS_SEC seconds at 16 kHz.
+    Word rate (words/second) saturates to 1.0 at SPEECHINESS_WPS_SAT wps.
+    Audio is passed as a numpy array — no disk writes.
+    """
+    whisper_model = _get_whisper_model()
+    clip      = y[: int(WHISPER_ANALYSIS_SEC * sr)]
+    audio_16k = librosa.resample(clip, orig_sr=sr, target_sr=16_000)
+    result    = whisper_model.transcribe(audio_16k, fp16=False, word_timestamps=False)
+    segments  = result.get("segments", [])
+    word_count = sum(len(seg.get("text", "").split()) for seg in segments)
+    duration   = len(clip) / (sr + 1e-6)
+    wps        = word_count / (duration + 1e-6)
+    return float(np.clip(wps / SPEECHINESS_WPS_SAT, 0.0, 1.0))
+
+
+def _compute_instrumentalness_demucs(y: "np.ndarray", sr: int) -> float:
+    """Instrumentalness [0,1] via Demucs htdemucs_6s: 1 − vocal energy ratio.
+
+    Separates a DEMUCS_ANALYSIS_SEC clip into 6 stems at 44100 Hz.
+    Vocals RMS vs. reconstructed mix RMS gives the vocal presence ratio.
+    """
+    demucs_model = _get_demucs_model()
+    clip     = y[: int(DEMUCS_ANALYSIS_SEC * sr)]
+    audio_44k = librosa.resample(clip, orig_sr=sr, target_sr=44_100)
+    stereo   = np.stack([audio_44k, audio_44k], axis=0)              # (2, samples)
+    tensor   = torch.from_numpy(stereo).unsqueeze(0).float()         # (1, 2, samples)
+
+    with torch.no_grad():
+        sources = _demucs_apply(demucs_model, tensor, device="cpu")  # (1, 6, 2, samples)
+
+    vocals_rms = float(torch.sqrt(torch.mean(sources[0, DEMUCS_VOCALS_SOURCE_IDX] ** 2)))
+    mix_rms    = float(torch.sqrt(torch.mean(sources[0].sum(0) ** 2)))
+    ratio      = float(np.clip(vocals_rms / (mix_rms + 1e-9), 0.0, 1.0))
+    return float(np.clip(1.0 - ratio, 0.0, 1.0))
+
+
+def _compute_acousticness(y: "np.ndarray", y_harmonic: "np.ndarray") -> float:
+    """Acousticness [0,1]: HPSS harmonic ratio + harmonic flatness + full-spectrum flatness penalty.
+
+    Synthesizers produce tonal harmonics (high harm_ratio) but have flatter overtone
+    structure than acoustic instruments. The full-spectrum flatness term penalises them.
+    """
+    harm_e  = float(np.mean(y_harmonic ** 2)) + 1e-9
+    total_e = float(np.mean(y ** 2)) + 1e-9
+    harm_ratio = float(np.clip(harm_e / total_e, 0.0, 1.0))
+
+    flatness_harm  = float(np.mean(librosa.feature.spectral_flatness(y=y_harmonic)))
+    flatness_score = float(np.clip(1.0 - flatness_harm * 20.0, 0.0, 1.0))
+
+    full_flatness      = float(np.mean(librosa.feature.spectral_flatness(y=y)))
+    full_flatness_term = float(np.clip(1.0 - full_flatness * 10.0, 0.0, 1.0))
+
+    return float(np.clip(
+        harm_ratio * 0.5 + flatness_score * 0.3 + full_flatness_term * 0.2, 0.0, 1.0
+    ))
 
 
 def _compute_liveness(y: "np.ndarray", sr: int) -> float:
-    """Liveness [0,1]: spectral contrast variation + harmonic noise floor."""
-    spec_contrast   = librosa.feature.spectral_contrast(y=y, sr=sr)
-    contrast_var    = float(np.mean(np.std(spec_contrast, axis=1)))
-    harmonic        = librosa.effects.harmonic(y)
-    high_band_noise = float(np.mean(librosa.feature.spectral_flatness(y=harmonic)))
-    return float(np.clip(
-        contrast_var / LIVENESS_CONTRAST_DIV * 0.6 + high_band_noise * 5 * 0.4, 0, 1
-    ))
+    """Liveness [0,1]: quiet-section noise floor (primary) + mid-band contrast (secondary).
+
+    Studio recordings have near-silence between events (high DR); live recordings
+    have persistent crowd/room noise in quiet sections (lower DR).
+    A compression proxy penalises heavily compressed studio tracks that mimic low DR.
+    """
+    rms_frames = librosa.feature.rms(y=y)[0]
+    db_frames  = librosa.amplitude_to_db(rms_frames + 1e-9)
+
+    quiet_mask  = db_frames < -45.0
+    active_mask = db_frames > SILENCE_THRESHOLD_DB
+
+    if quiet_mask.sum() >= 5 and active_mask.sum() >= 5:
+        q_rms = float(np.mean(rms_frames[quiet_mask]))
+        a_rms = float(np.mean(rms_frames[active_mask]))
+        dr    = a_rms / (q_rms + 1e-9)
+        noise_floor_score = float(np.clip(1.0 - np.log10(dr + 1.0) / 3.0, 0.0, 1.0))
+        if float(np.std(db_frames[active_mask])) < 4.0:
+            noise_floor_score *= 0.3
+    else:
+        noise_floor_score = 0.15
+
+    spec_contrast    = librosa.feature.spectral_contrast(y=y, sr=sr, n_bands=6)
+    mid_contrast_var = float(np.mean(np.std(spec_contrast[2:5], axis=1)))
+    mid_score        = float(np.clip(mid_contrast_var / 10.0, 0.0, 1.0))
+
+    return float(np.clip(noise_floor_score * 0.70 + mid_score * 0.30, 0.0, 1.0))
 
 
-def _compute_valence(y: "np.ndarray", sr: int) -> float:
-    """Valence [0,1]: Krumhansl-Kessler major/minor key estimation."""
+def _compute_valence(
+    y: "np.ndarray", sr: int,
+    y_harmonic: "np.ndarray", y_percussive: "np.ndarray",
+    tempo_val: float, stft: "np.ndarray", freqs: "np.ndarray",
+) -> float:
+    """Valence [0,1]: Krumhansl-Kessler key mode + tempo + spectral tilt + H/P ratio."""
     chroma      = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_mean = np.mean(chroma, axis=1)
     chroma_mean = chroma_mean / (chroma_mean.sum() + 1e-6)
-    # Use normalised copies (immutable profiles, no in-place mutation)
-    major_p = np.array(_MAJOR_PROFILE)
-    minor_p = np.array(_MINOR_PROFILE)
-    major_p = major_p / major_p.sum()
-    minor_p = minor_p / minor_p.sum()
+    major_p = np.array(_MAJOR_PROFILE); major_p = major_p / major_p.sum()
+    minor_p = np.array(_MINOR_PROFILE); minor_p = minor_p / minor_p.sum()
     cors_maj = [float(np.corrcoef(np.roll(chroma_mean, i), major_p)[0, 1]) for i in range(12)]
     cors_min = [float(np.corrcoef(np.roll(chroma_mean, i), minor_p)[0, 1]) for i in range(12)]
-    diff    = max(cors_maj) - max(cors_min)
-    return float(np.clip((diff * 2.5 + 1) / 2, 0, 1))
+    diff     = max(cors_maj) - max(cors_min)
+    mode_score = float(np.clip((diff + 0.5) / 1.0, 0.0, 1.0))
+
+    tempo_norm = float(np.clip(
+        (tempo_val - TEMPO_MIN_BPM) / (TEMPO_MAX_BPM - TEMPO_MIN_BPM), 0.0, 1.0
+    ))
+
+    mean_spec = np.mean(stft, axis=1) + 1e-9
+    log_freqs = np.log(freqs[1:] + 1.0)
+    log_spec  = np.log(mean_spec[1:])
+    slope     = float(np.polyfit(log_freqs, log_spec, 1)[0]) if len(log_freqs) > 2 else -2.5
+    spectral_tilt = float(np.clip((slope + 5.0) / 5.0, 0.0, 1.0))
+
+    h_e     = float(np.mean(y_harmonic ** 2)) + 1e-9
+    p_e     = float(np.mean(y_percussive ** 2)) + 1e-9
+    h_ratio = float(np.clip(h_e / (h_e + p_e), 0.0, 1.0))
+
+    return float(np.clip(
+        mode_score * 0.45 + tempo_norm * 0.15 + spectral_tilt * 0.25 + h_ratio * 0.15,
+        0.0, 1.0,
+    ))
 
 
 def _extract_audio_features(file_path: str) -> dict[str, float]:
-    """Orchestrate per-feature helpers; return Spotify-like audio feature dict."""
+    """Orchestrate per-feature helpers; return Spotify-like audio feature dict.
+
+    7 features always computed via librosa (no extra packages needed):
+      tempo, loudness, energy, danceability, acousticness, liveness, valence
+    2 ML-enhanced features conditionally computed when packages are installed:
+      speechiness      — requires openai-whisper  (~39 MB)
+      instrumentalness — requires demucs + torch  (~80 MB)
+    """
     y, sr = librosa.load(file_path, duration=90, mono=True)
 
-    tempo_val, onset_env = _compute_tempo(y, sr)
-    loudness             = _compute_loudness(y)
-    energy               = _compute_energy(y)
-    acousticness         = _compute_acousticness(y, sr)
-    danceability         = _compute_danceability(onset_env, sr, tempo_val)
+    stft             = np.abs(librosa.stft(y))
+    freqs            = librosa.fft_frequencies(sr=sr)
+    y_harmonic, y_percussive = librosa.effects.hpss(y)
 
-    mfccs                = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-    speechiness          = _compute_speechiness(y, sr, mfccs)
-    instrumentalness     = _compute_instrumentalness(mfccs)
+    tempo_val, beat_frames = _compute_tempo(y, sr)
 
-    liveness             = _compute_liveness(y, sr)
-    valence              = _compute_valence(y, sr)
-
-    return {
-        "danceability":     round(danceability,     3),
-        "energy":           round(energy,           3),
-        "loudness":         round(loudness,          1),
-        "speechiness":      round(speechiness,       3),
-        "acousticness":     round(acousticness,      3),
-        "instrumentalness": round(instrumentalness,  3),
-        "liveness":         round(liveness,          3),
-        "valence":          round(valence,           3),
-        "tempo":            round(tempo_val,         1),
+    result: dict[str, float] = {
+        "tempo":        round(tempo_val, 1),
+        "loudness":     round(_compute_loudness(y), 1),
+        "energy":       round(_compute_energy(y, stft, freqs), 3),
+        "danceability": round(_compute_danceability(y, sr, beat_frames), 3),
+        "acousticness": round(_compute_acousticness(y, y_harmonic), 3),
+        "liveness":     round(_compute_liveness(y, sr), 3),
+        "valence":      round(_compute_valence(y, sr, y_harmonic, y_percussive, tempo_val, stft, freqs), 3),
     }
+
+    if WHISPER_AVAILABLE:
+        result["speechiness"] = round(_compute_speechiness_whisper(y, sr), 3)
+
+    if DEMUCS_AVAILABLE:
+        result["instrumentalness"] = round(_compute_instrumentalness_demucs(y, sr), 3)
+
+    return result
 
 
 # ── ROUTES ────────────────────────────────────────────────────────────────────
@@ -286,16 +507,20 @@ def index() -> Any:
 def meta() -> Any:
     """Send feature metadata to the frontend."""
     response: dict[str, Any] = {
-        "features":        features,
-        "slider_features": slider_features,
-        "importance":      importance,
-        "ranges":          ranges,
-        "r2":              r2,
-        "mae":             mae,
-        "recommended":     recommended,
+        "features":         features,
+        "slider_features":  slider_features,
+        "importance":       importance,
+        "audio_importance": _audio_importance_normalized(),
+        "ranges":           ranges,
+        "r2":               r2,
+        "mae":              mae,
+        "recommended":      recommended,
     }
     if "r2_base" in payload:
         response["r2_base"] = payload["r2_base"]
+    if "cv_r2_mean" in payload:
+        response["cv_r2_mean"] = payload["cv_r2_mean"]
+        response["cv_r2_std"]  = payload["cv_r2_std"]
     return jsonify(response)
 
 
@@ -308,13 +533,9 @@ def genres() -> Any:
 @app.route("/predict", methods=["POST"])
 def predict() -> tuple[Any, int]:
     """Receive feature values, return predicted popularity score + insights."""
-    data = request.json
+    data = request.json or {}
     try:
-        artist       = data.get("artist", "").strip()
-        artist_found = artist in artist_lookup
-        artist_avg   = artist_lookup.get(artist, global_avg_pop)
-
-        body   = {**data, "artist_avg_popularity": artist_avg}
+        body   = {**data, "artist_avg_popularity": global_avg_pop}
         values = [[body.get(f, ranges[f]["mean"]) for f in features]]
 
         raw_score = model.predict(values)[0]
@@ -325,6 +546,8 @@ def predict() -> tuple[Any, int]:
 
         genre          = data.get("genre", "").strip()
         genre_specific = genre_means.get(genre, {}) if genre else {}
+
+        imp_dict = _audio_importance_normalized()
 
         insights: dict[str, Any] = {}
         for f in slider_features:
@@ -342,13 +565,10 @@ def predict() -> tuple[Any, int]:
                 "value":      round(user_val, 3),
                 "avg":        round(avg, 3),
                 "direction":  direction,
-                "importance": round(importance.get(f, 0), 3),
+                "importance": round(imp_dict.get(f, 0), 3),
             }
 
-        result: dict[str, Any] = {"score": score, "insights": insights}
-        if artist:
-            result["artist_found"] = artist_found
-        return jsonify(result), 200
+        return jsonify({"score": score, "insights": insights}), 200
 
     except Exception:
         logger.exception("Prediction failed")

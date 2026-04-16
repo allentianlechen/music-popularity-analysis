@@ -1208,7 +1208,7 @@
     </div>
     <div class="upload-spinner" id="upload-spinner">
       <div class="spinner-ring"></div>
-      <span>Analyzing audio… <span style="opacity:0.55">~15 seconds</span></span>
+      <span>Analyzing audio… <span style="opacity:0.55">up to 60 seconds depending on installed models</span></span>
     </div>
     <div class="upload-error" id="upload-error"></div>
 
@@ -1266,15 +1266,9 @@
       </div>
     </div>
     <div id="optimize-note" style="display:none;font-family:'Azeret Mono',monospace;font-size:13px;color:var(--warn);background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6;">
-      Audio features set to typical hit-track values. Score reflects audio only — enter an artist name above to factor in artist fame, which is the model's strongest predictor.
+      Audio features set to typical hit-track values. Score reflects audio characteristics only.
     </div>
     <div class="filter-row">
-      <div class="filter-group">
-        <label class="filter-label" for="artist-input">Artist name (optional)</label>
-        <input type="text" class="filter-input" id="artist-input"
-               placeholder="e.g. Taylor Swift" autocomplete="off">
-        <div id="artist-status" style="font-family:'Azeret Mono',monospace;font-size:12px;min-height:14px;margin-top:3px;"></div>
-      </div>
       <div class="filter-group">
         <label class="filter-label" for="genre-select">Genre — affects insights only</label>
         <select class="filter-select" id="genre-select">
@@ -1450,14 +1444,12 @@
       // Accuracy narrative card (Task 3.1)
       const accEl = document.getElementById("accuracy-info");
       if (accEl) {
-        const r2Pct     = Math.round(meta.r2 * 100);
-        const basePct   = meta.r2_base !== undefined ? Math.round(meta.r2_base * 100) : null;
-        const artistPct = basePct !== null ? r2Pct - basePct : null;
-        const baseLine  = basePct !== null
-          ? `<br>Audio features alone explain ~${basePct}% — artist fame adds the remaining ~${artistPct}%.`
+        const r2Pct  = Math.round(meta.r2 * 100);
+        const cvLine = (meta.cv_r2_mean !== undefined)
+          ? `<br>Cross-validation R²: ${meta.cv_r2_mean} ± ${meta.cv_r2_std} (5-fold).`
           : "";
         accEl.innerHTML =
-          `<strong>Model accuracy:</strong> R² = ${meta.r2}${baseLine}<br>` +
+          `<strong>Model accuracy:</strong> R² = ${meta.r2}${cvLine}<br>` +
           `The ~${100 - r2Pct}% unexplained variance comes from playlist placement, ` +
           `release timing, and marketing — factors this tool cannot measure.<br>` +
           `Mean prediction error: ±${meta.mae} popularity points.`;
@@ -1467,16 +1459,8 @@
       // Feature importance chart (Task 3.3)
       renderImportanceChart(meta);
 
-      // Re-predict when artist or genre changes
-      const artistInput = document.getElementById("artist-input");
+      // Re-predict when genre changes
       const genreSelectEl = document.getElementById("genre-select");
-      if (artistInput) {
-        artistInput.addEventListener("input", () => {
-          if (!uploadedFeatures) return;
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(predict, 300);
-        });
-      }
       if (genreSelectEl) {
         genreSelectEl.addEventListener("change", () => {
           if (uploadedFeatures) predict();
@@ -1645,19 +1629,13 @@
       body[feat] = slider ? parseFloat(slider.value) : (meta.ranges[feat] ? meta.ranges[feat].mean : 0);
     });
 
-    // Non-slider features — use dataset mean (artist_avg_popularity handled server-side)
+    // Non-slider features — use dataset mean (artist_avg_popularity always uses global mean)
     if (meta.features) {
       meta.features.forEach(feat => {
         if (!(feat in body) && feat !== "artist_avg_popularity") {
           body[feat] = meta.ranges[feat] ? meta.ranges[feat].mean : 0;
         }
       });
-    }
-
-    // Optional artist name for server-side lookup
-    const artistInput = document.getElementById("artist-input");
-    if (artistInput && artistInput.value.trim()) {
-      body.artist = artistInput.value.trim();
     }
 
     // Optional genre for context-aware comparisons
@@ -1677,21 +1655,6 @@
         const verdictEl = document.getElementById("score-verdict");
         if (verdictEl) verdictEl.textContent = `Prediction error: ${data.error}`;
         return;
-      }
-
-      // Artist lookup feedback
-      const artistStatusEl = document.getElementById('artist-status');
-      if (artistStatusEl) {
-        const artistVal = document.getElementById('artist-input')?.value.trim();
-        if (!artistVal) {
-          artistStatusEl.textContent = '';
-        } else if (data.artist_found === true) {
-          artistStatusEl.style.color = '#4ade80';
-          artistStatusEl.textContent = '✓ Found in dataset';
-        } else if (data.artist_found === false) {
-          artistStatusEl.style.color = 'var(--warn)';
-          artistStatusEl.textContent = 'Not in dataset — using global average';
-        }
       }
 
       // Update insights title to reflect genre context
@@ -1952,23 +1915,56 @@
           ["danceability","energy","loudness","speechiness","acousticness",
            "instrumentalness","liveness","valence","tempo"]) : [];
 
+        // Clear previous auto-fill indicators
+        document.querySelectorAll(".slider-auto-dot").forEach(el => el.remove());
+
         sliderFeats.forEach(feat => {
-          if (!(feat in feats)) return;
           const slider = document.getElementById(`slider-${feat}`);
           const valEl  = document.getElementById(`val-${feat}`);
           if (!slider) return;
-          const v = feats[feat];
-          slider.value = v;
-          slider.setAttribute("aria-valuenow", v);
-          updateSliderFill(slider);
-          if (valEl) {
-            const isLoudness = feat === "loudness";
-            const isTempo    = feat === "tempo";
-            valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
-                              : isTempo    ? `${Math.round(v)} BPM`
-                              : parseFloat(v).toFixed(3);
+          if (feat in feats) {
+            const v = feats[feat];
+            slider.value = v;
+            slider.setAttribute("aria-valuenow", v);
+            updateSliderFill(slider);
+            if (valEl) {
+              const isLoudness = feat === "loudness";
+              const isTempo    = feat === "tempo";
+              valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
+                                : isTempo    ? `${Math.round(v)} BPM`
+                                : parseFloat(v).toFixed(3);
+            }
+            // Add green auto-fill dot next to the slider label
+            const labelEl = document.querySelector(`label[for="slider-${feat}"]`);
+            if (labelEl && !labelEl.querySelector(".slider-auto-dot")) {
+              const dot = document.createElement("span");
+              dot.className = "slider-auto-dot";
+              dot.title = "Auto-filled from audio";
+              dot.style.cssText = "display:inline-block;width:7px;height:7px;border-radius:50%;background:#1db954;margin-left:5px;vertical-align:middle;";
+              labelEl.appendChild(dot);
+            }
           }
         });
+
+        // Show note if fewer than 9 features were extracted
+        const extractedCount = Object.keys(feats).length;
+        let availNote = document.getElementById("audio-feature-availability-note");
+        if (!availNote) {
+          availNote = document.createElement("p");
+          availNote.id = "audio-feature-availability-note";
+          availNote.style.cssText = "margin:8px 0 0;font-size:12px;color:var(--muted);opacity:0.75;";
+          const uploadZone = document.getElementById("drop-zone");
+          if (uploadZone && uploadZone.parentNode) {
+            uploadZone.parentNode.insertBefore(availNote, uploadZone.nextSibling);
+          }
+        }
+        if (extractedCount < 9) {
+          availNote.textContent = `${extractedCount} of 9 features were extracted from audio. Install optional packages for full extraction (see README).`;
+          availNote.style.display = "block";
+        } else {
+          availNote.style.display = "none";
+        }
+
         uploadedFeatures = feats;
         // Feature cards removed — results panel provides the full breakdown
         await predict();

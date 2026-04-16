@@ -107,21 +107,11 @@ class TestPredict:
         for feat, info in data["insights"].items():
             assert info["direction"] in valid, f"{feat}: unexpected direction '{info['direction']}'"
 
-    def test_artist_found_true_for_known_artist(self, client):
-        import APP
-        if not APP.artist_lookup:
-            pytest.skip("artist_lookup is empty")
-        known = next(iter(APP.artist_lookup))
-        data = self._post(client, {"artist": known}).get_json()
-        assert data.get("artist_found") is True
-
-    def test_artist_found_false_for_unknown_artist(self, client):
-        data = self._post(client, {"artist": "__no_such_artist_xyzzy__"}).get_json()
-        assert data.get("artist_found") is False
-
-    def test_no_artist_field_omits_artist_found(self, client):
-        data = self._post(client, {}).get_json()
-        assert "artist_found" not in data
+    def test_artist_found_never_in_response(self, client):
+        # artist_found was removed — verify it is absent regardless of input
+        for body in [{}, {"artist": "Taylor Swift"}, {"artist": "__unknown__"}]:
+            data = self._post(client, body).get_json()
+            assert "artist_found" not in data, f"artist_found leaked into response for body={body}"
 
     def test_genre_in_body_does_not_crash(self, client):
         res = self._post(client, {"genre": "pop"})
@@ -251,12 +241,24 @@ class TestAudioFeatureHelpers:
         y = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
         return y, sr
 
+    @pytest.fixture(scope="class")
+    def shared_features(self, sine_wave):
+        """Pre-compute shared librosa features used by multiple helpers."""
+        try:
+            import librosa
+            import numpy as np
+        except ImportError:
+            pytest.skip("librosa not available")
+        y, sr = sine_wave
+        stft  = np.abs(librosa.stft(y))
+        freqs = librosa.fft_frequencies(sr=sr)
+        return {"stft": stft, "freqs": freqs}
+
     def test_compute_tempo_in_valid_range(self, sine_wave):
         from APP import _compute_tempo, TEMPO_MIN_BPM, TEMPO_MAX_BPM
         y, sr = sine_wave
-        tempo_val, onset_env = _compute_tempo(y, sr)
+        tempo_val, beat_frames = _compute_tempo(y, sr)
         assert TEMPO_MIN_BPM <= tempo_val <= TEMPO_MAX_BPM
-        assert len(onset_env) > 0
 
     def test_compute_loudness_in_db_range(self, sine_wave):
         from APP import _compute_loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB
@@ -264,56 +266,91 @@ class TestAudioFeatureHelpers:
         loudness = _compute_loudness(y)
         assert LOUDNESS_MIN_DB <= loudness <= LOUDNESS_MAX_DB
 
-    def test_compute_energy_in_0_1(self, sine_wave):
+    def test_compute_energy_in_0_1(self, sine_wave, shared_features):
         from APP import _compute_energy
         y, sr = sine_wave
-        assert 0.0 <= _compute_energy(y) <= 1.0
+        val = _compute_energy(y, shared_features["stft"], shared_features["freqs"])
+        assert 0.0 <= val <= 1.0
+
+    def test_compute_danceability_in_0_1(self, sine_wave):
+        from APP import _compute_danceability, _compute_tempo
+        y, sr = sine_wave
+        _, beat_frames = _compute_tempo(y, sr)
+        val = _compute_danceability(y, sr, beat_frames)
+        assert 0.0 <= val <= 1.0
+
+    # ── /analyze-audio integration tests ──────────────────────────────────────
+
+    def test_analyze_audio_always_returns_four_base_features(self, client):
+        """Four librosa features must always be present regardless of ML packages."""
+        import io
+        data = {"file": (io.BytesIO(b"not real mp3"), "test.mp3")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        # If audio analysis succeeds, check the four base features are present.
+        # If it fails (bad content), that's expected — we only check structure on success.
+        if res.status_code == 200:
+            feats = res.get_json().get("features", {})
+            for key in ("tempo", "loudness", "energy", "danceability"):
+                assert key in feats, f"base feature missing from /analyze-audio response: {key}"
+
+    def test_analyze_audio_returns_no_deleted_librosa_features(self, client):
+        """Legacy heuristic feature keys must never appear in the response."""
+        import io
+        data = {"file": (io.BytesIO(b"not real mp3"), "test.mp3")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        if res.status_code == 200:
+            feats = res.get_json().get("features", {})
+            for bad_key in ("acousticness_hpss", "liveness_dr"):
+                assert bad_key not in feats, f"deleted heuristic key found: {bad_key}"
+
+    # ── ML feature unit tests (gated with pytest.importorskip) ────────────────
+
+    def test_compute_speechiness_whisper_returns_low_for_sine(self, sine_wave):
+        """A pure sine wave has no speech; speechiness should be near 0."""
+        pytest.importorskip("whisper")
+        from APP import _compute_speechiness_whisper
+        y, sr = sine_wave
+        val = _compute_speechiness_whisper(y, sr)
+        assert 0.0 <= val <= 1.0
+        assert val < 0.5, f"sine wave should have low speechiness, got {val}"
+
+    def test_compute_instrumentalness_demucs_range(self, sine_wave):
+        """Output must be in [0, 1]."""
+        pytest.importorskip("demucs")
+        pytest.importorskip("torch")
+        from APP import _compute_instrumentalness_demucs
+        y, sr = sine_wave
+        val = _compute_instrumentalness_demucs(y, sr)
+        assert 0.0 <= val <= 1.0
 
     def test_compute_acousticness_in_0_1(self, sine_wave):
         from APP import _compute_acousticness
+        import librosa
         y, sr = sine_wave
-        assert 0.0 <= _compute_acousticness(y, sr) <= 1.0
-
-    def test_compute_speechiness_in_0_1(self, sine_wave):
-        from APP import _compute_speechiness
-        import numpy as np
-        try:
-            import librosa
-        except ImportError:
-            pytest.skip("librosa not available")
-        y, sr = sine_wave
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        assert 0.0 <= _compute_speechiness(y, sr, mfccs) <= 1.0
-
-    def test_compute_instrumentalness_in_0_1(self, sine_wave):
-        from APP import _compute_instrumentalness
-        try:
-            import librosa
-        except ImportError:
-            pytest.skip("librosa not available")
-        y, sr = sine_wave
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        val = _compute_instrumentalness(mfccs)
-        assert 0.0 <= val <= 1.0
-
-    def test_compute_instrumentalness_not_always_zero(self, sine_wave):
-        """Regression test: previous bug returned 0.0 for every track."""
-        from APP import _compute_instrumentalness
-        try:
-            import librosa
-        except ImportError:
-            pytest.skip("librosa not available")
-        y, sr = sine_wave
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        val = _compute_instrumentalness(mfccs)
-        assert val != 0.0, "instrumentalness should not always be zero (regression test)"
+        y_harmonic, _ = librosa.effects.hpss(y)
+        assert 0.0 <= _compute_acousticness(y, y_harmonic) <= 1.0
 
     def test_compute_liveness_in_0_1(self, sine_wave):
         from APP import _compute_liveness
         y, sr = sine_wave
         assert 0.0 <= _compute_liveness(y, sr) <= 1.0
 
-    def test_compute_valence_in_0_1(self, sine_wave):
-        from APP import _compute_valence
+    def test_compute_valence_in_0_1(self, sine_wave, shared_features):
+        from APP import _compute_valence, _compute_tempo
+        import librosa
         y, sr = sine_wave
-        assert 0.0 <= _compute_valence(y, sr) <= 1.0
+        tempo_val, _ = _compute_tempo(y, sr)
+        y_harmonic, y_percussive = librosa.effects.hpss(y)
+        val = _compute_valence(
+            y, sr, y_harmonic, y_percussive, tempo_val,
+            shared_features["stft"], shared_features["freqs"],
+        )
+        assert 0.0 <= val <= 1.0

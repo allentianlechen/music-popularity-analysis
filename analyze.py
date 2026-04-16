@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score, train_test_split
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,7 +69,16 @@ def train() -> None:
     mae    = mean_absolute_error(y_test, y_pred)
     logger.info("R² = %.3f  |  MAE = %.1f popularity points", r2, mae)
 
-    # ── 5b. AUDIO-ONLY R² ─────────────────────────────────────────────────────
+    # ── 5b. CROSS-VALIDATION ─────────────────────────────────────────────────
+    cv_scores = cross_val_score(
+        RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
+        X, y, cv=5, scoring="r2"
+    )
+    cv_r2_mean = float(cv_scores.mean())
+    cv_r2_std  = float(cv_scores.std())
+    logger.info("CV R²: %.3f ± %.3f", cv_r2_mean, cv_r2_std)
+
+    # ── 5c. AUDIO-ONLY R² ─────────────────────────────────────────────────────
     X_base = df[SLIDER_FEATURES + EXTRA_FEATURES]
     X_tr_base, X_te_base, y_tr_base, y_te_base = train_test_split(
         X_base, y, test_size=0.2, random_state=42
@@ -79,6 +88,9 @@ def train() -> None:
     r2_base = r2_score(y_te_base, m_base.predict(X_te_base))
     logger.info("Audio-only R² (no artist): %.3f  |  Artist fame contribution: %.3f",
                 r2_base, r2 - r2_base)
+    audio_importance = pd.Series(
+        m_base.feature_importances_, index=SLIDER_FEATURES + EXTRA_FEATURES
+    )
 
     # ── 5c. SCORE RANGE ───────────────────────────────────────────────────────
     all_preds = model.predict(X)
@@ -128,7 +140,10 @@ def train() -> None:
             }
             for feat in all_features
         },
+        "cv_r2_mean":             round(cv_r2_mean, 3),
+        "cv_r2_std":              round(cv_r2_std,  3),
         "r2_base":                round(r2_base, 3),
+        "audio_importance":       audio_importance.to_dict(),
         "artist_lookup":          df.groupby("artists")["popularity"].mean().round(1).to_dict(),
         "global_avg_popularity":  round(float(df["popularity"].mean()), 1),
         "genre_means":            genre_means,
