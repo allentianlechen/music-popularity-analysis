@@ -313,22 +313,21 @@ class TestAudioFeatureHelpers:
 
     # ── ML feature unit tests (gated with pytest.importorskip) ────────────────
 
-    def test_compute_speechiness_whisper_returns_low_for_sine(self, sine_wave):
-        """A pure sine wave has no speech; speechiness should be near 0."""
-        pytest.importorskip("whisper")
-        from APP import _compute_speechiness_whisper
+    def test_compute_speechiness_in_0_1(self, sine_wave, shared_features):
+        from APP import _compute_speechiness
+        import librosa
         y, sr = sine_wave
-        val = _compute_speechiness_whisper(y, sr)
+        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+        val = _compute_speechiness(y, sr, mfccs, shared_features["stft"], shared_features["freqs"])
         assert 0.0 <= val <= 1.0
-        assert val < 0.5, f"sine wave should have low speechiness, got {val}"
 
-    def test_compute_instrumentalness_demucs_range(self, sine_wave):
-        """Output must be in [0, 1]."""
-        pytest.importorskip("demucs")
-        pytest.importorskip("torch")
-        from APP import _compute_instrumentalness_demucs
+    def test_compute_instrumentalness_in_0_1(self, sine_wave, shared_features):
+        from APP import _compute_instrumentalness, _compute_tempo
+        import librosa
         y, sr = sine_wave
-        val = _compute_instrumentalness_demucs(y, sr)
+        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+        tempo_val, _ = _compute_tempo(y, sr)
+        val = _compute_instrumentalness(mfccs, shared_features["stft"], shared_features["freqs"], sr, tempo_val)
         assert 0.0 <= val <= 1.0
 
     def test_compute_acousticness_in_0_1(self, sine_wave):

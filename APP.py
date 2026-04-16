@@ -21,23 +21,10 @@ from flask import Flask, jsonify, request, send_from_directory
 try:
     import librosa
     import numpy as np
+    from scipy.ndimage import median_filter
     LIBROSA_AVAILABLE = True
 except ImportError:
     LIBROSA_AVAILABLE = False
-
-try:
-    import whisper as _whisper_lib
-    WHISPER_AVAILABLE = True
-except ImportError:
-    WHISPER_AVAILABLE = False
-
-try:
-    import torch
-    from demucs.apply import apply_model as _demucs_apply
-    from demucs.pretrained import get_model as _demucs_get_model
-    DEMUCS_AVAILABLE = True
-except ImportError:
-    DEMUCS_AVAILABLE = False
 
 
 # ── LOGGING ───────────────────────────────────────────────────────────────────
@@ -55,19 +42,14 @@ TEMPO_START_BPM: int         = 100
 LOUDNESS_MIN_DB: float       = -60.0
 LOUDNESS_MAX_DB: float       = 0.0
 SILENCE_THRESHOLD_DB: float  = -50.0
+INSTR_VAR_DIVISOR: float     = 300.0
+MFCC_DELTA_NORM: float       = 5.0
+MFCC_DELTA2_NORM: float      = 8.0
+ZCR_NORM: float              = 0.15
 
 ALLOWED_AUDIO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 )
-
-# ── ML MODEL CONSTANTS ────────────────────────────────────────────────────────
-WHISPER_MODEL_SIZE: str    = "tiny"
-SPEECHINESS_WPS_SAT: float = 3.0          # words/sec that saturates speechiness to 1.0
-WHISPER_ANALYSIS_SEC: int  = 60
-
-DEMUCS_MODEL_NAME: str        = "htdemucs_6s"
-DEMUCS_ANALYSIS_SEC: int      = 20
-DEMUCS_VOCALS_SOURCE_IDX: int = 3         # vocal stem index in htdemucs_6s source order
 
 
 # Krumhansl-Kessler key profiles (immutable tuples — never mutated in-place)
@@ -129,30 +111,6 @@ def _audio_importance_normalized() -> dict[str, float]:
 
 
 # ── ML MODEL LAZY LOADERS ─────────────────────────────────────────────────────
-
-_whisper_model = None
-_demucs_model  = None
-
-
-def _get_whisper_model():
-    """Lazy-load Whisper tiny model; cached after first call."""
-    global _whisper_model
-    if _whisper_model is None:
-        logger.info("Loading Whisper '%s' model (first use)…", WHISPER_MODEL_SIZE)
-        _whisper_model = _whisper_lib.load_model(WHISPER_MODEL_SIZE)
-        logger.info("Whisper model loaded.")
-    return _whisper_model
-
-
-def _get_demucs_model():
-    """Lazy-load Demucs htdemucs_6s model; cached after first call."""
-    global _demucs_model
-    if _demucs_model is None:
-        logger.info("Loading Demucs '%s' model (first use)…", DEMUCS_MODEL_NAME)
-        _demucs_model = _demucs_get_model(DEMUCS_MODEL_NAME)
-        _demucs_model.eval()
-        logger.info("Demucs model loaded.")
-    return _demucs_model
 
 
 
@@ -293,43 +251,73 @@ def _compute_danceability(
     return float(np.clip(ibi_score * 0.5 + plp_score * 0.5, 0.0, 1.0))
 
 
-def _compute_speechiness_whisper(y: "np.ndarray", sr: int) -> float:
-    """Speechiness [0,1] via Whisper tiny: word rate from transcription.
+def _compute_speechiness(
+    y: "np.ndarray", sr: int, mfccs: "np.ndarray",
+    stft: "np.ndarray", freqs: "np.ndarray",
+) -> float:
+    """Speechiness [0,1]: MFCC delta + delta² dynamics + vocal-band flux + ZCR."""
+    mfcc_delta  = librosa.feature.delta(mfccs[:13])
+    mfcc_delta2 = librosa.feature.delta(mfccs[:13], order=2)
+    delta_norm  = float(np.clip(np.mean(np.abs(mfcc_delta))  / MFCC_DELTA_NORM,  0.0, 1.0))
+    delta2_norm = float(np.clip(np.mean(np.abs(mfcc_delta2)) / MFCC_DELTA2_NORM, 0.0, 1.0))
 
-    Transcribes the first WHISPER_ANALYSIS_SEC seconds at 16 kHz.
-    Word rate (words/second) saturates to 1.0 at SPEECHINESS_WPS_SAT wps.
-    Audio is passed as a numpy array — no disk writes.
+    vocal_mask = (freqs >= 300.0) & (freqs <= 3400.0)
+    vocal_stft = stft[vocal_mask]
+    if vocal_stft.shape[1] > 1:
+        flux     = float(np.mean(np.abs(np.diff(vocal_stft, axis=1))))
+        flux_rel = float(np.clip(flux / (np.mean(vocal_stft) + 1e-9), 0.0, 2.0)) / 2.0
+    else:
+        flux_rel = 0.0
+
+    zcr_norm = float(np.clip(
+        np.mean(librosa.feature.zero_crossing_rate(y)[0]) / ZCR_NORM, 0.0, 1.0
+    ))
+
+    return float(np.clip(
+        delta_norm * 0.35 + delta2_norm * 0.20 + flux_rel * 0.30 + zcr_norm * 0.15,
+        0.0, 1.0,
+    ))
+
+
+def _compute_instrumentalness(
+    mfccs: "np.ndarray", stft: "np.ndarray", freqs: "np.ndarray",
+    sr: int, tempo_val: float = 120.0,
+) -> float:
+    """Instrumentalness [0,1]: inverse of vocal presence (MFCC var + vibrato detection).
+
+    Vibrato detection: 4.5–7 Hz periodic modulation in spectral centroid indicates singing.
+    Median filter suppresses frame jitter; rhythmic subdivisions excluded to avoid false positives.
     """
-    whisper_model = _get_whisper_model()
-    clip      = y[: int(WHISPER_ANALYSIS_SEC * sr)]
-    audio_16k = librosa.resample(clip, orig_sr=sr, target_sr=16_000)
-    result    = whisper_model.transcribe(audio_16k, fp16=False, word_timestamps=False)
-    segments  = result.get("segments", [])
-    word_count = sum(len(seg.get("text", "").split()) for seg in segments)
-    duration   = len(clip) / (sr + 1e-6)
-    wps        = word_count / (duration + 1e-6)
-    return float(np.clip(wps / SPEECHINESS_WPS_SAT, 0.0, 1.0))
+    mfcc_var      = float(np.mean(np.var(mfccs[1:5], axis=1)))
+    mfcc_var_norm = float(np.clip(mfcc_var / INSTR_VAR_DIVISOR, 0.0, 1.0))
 
+    centroid_frames = np.sum(freqs[:, np.newaxis] * stft, axis=0) / (np.sum(stft, axis=0) + 1e-9)
+    if len(centroid_frames) >= 3:
+        centroid_frames = median_filter(centroid_frames, size=3).astype(centroid_frames.dtype)
+    hop             = 512
+    fps             = sr / hop
+    centroid_normed = centroid_frames - float(np.mean(centroid_frames))
+    ac              = librosa.autocorrelate(centroid_normed, max_size=len(centroid_normed) // 2)
+    ac_normed       = ac / (ac[0] + 1e-9)
 
-def _compute_instrumentalness_demucs(y: "np.ndarray", sr: int) -> float:
-    """Instrumentalness [0,1] via Demucs htdemucs_6s: 1 − vocal energy ratio.
+    lag_lo = max(1, int(fps / 7.0))
+    lag_hi = max(lag_lo + 1, int(fps / 4.5))
+    excluded_hz: tuple[float, ...] = (
+        tempo_val * 4.0 / 60.0,
+        tempo_val * 2.0 / 60.0,
+        tempo_val * 1.0 / 60.0,
+    )
+    valid_lags = [
+        lag for lag in range(lag_lo, lag_hi + 1)
+        if lag < len(ac_normed)
+        and all(abs(fps / lag - exc) > 1.0 for exc in excluded_hz)
+    ]
 
-    Separates a DEMUCS_ANALYSIS_SEC clip into 6 stems at 44100 Hz.
-    Vocals RMS vs. reconstructed mix RMS gives the vocal presence ratio.
-    """
-    demucs_model = _get_demucs_model()
-    clip     = y[: int(DEMUCS_ANALYSIS_SEC * sr)]
-    audio_44k = librosa.resample(clip, orig_sr=sr, target_sr=44_100)
-    stereo   = np.stack([audio_44k, audio_44k], axis=0)              # (2, samples)
-    tensor   = torch.from_numpy(stereo).unsqueeze(0).float()         # (1, 2, samples)
-
-    with torch.no_grad():
-        sources = _demucs_apply(demucs_model, tensor, device="cpu")  # (1, 6, 2, samples)
-
-    vocals_rms = float(torch.sqrt(torch.mean(sources[0, DEMUCS_VOCALS_SOURCE_IDX] ** 2)))
-    mix_rms    = float(torch.sqrt(torch.mean(sources[0].sum(0) ** 2)))
-    ratio      = float(np.clip(vocals_rms / (mix_rms + 1e-9), 0.0, 1.0))
-    return float(np.clip(1.0 - ratio, 0.0, 1.0))
+    vibrato_score  = float(np.clip(
+        float(np.max(ac_normed[valid_lags])) if valid_lags else 0.0, 0.0, 1.0
+    ))
+    vocal_presence = float(np.clip(mfcc_var_norm * 0.40 + vibrato_score * 0.60, 0.0, 1.0))
+    return float(np.clip(1.0 - vocal_presence, 0.0, 1.0))
 
 
 def _compute_acousticness(y: "np.ndarray", y_harmonic: "np.ndarray") -> float:
@@ -422,37 +410,28 @@ def _compute_valence(
 def _extract_audio_features(file_path: str) -> dict[str, float]:
     """Orchestrate per-feature helpers; return Spotify-like audio feature dict.
 
-    7 features always computed via librosa (no extra packages needed):
-      tempo, loudness, energy, danceability, acousticness, liveness, valence
-    2 ML-enhanced features conditionally computed when packages are installed:
-      speechiness      — requires openai-whisper  (~39 MB)
-      instrumentalness — requires demucs + torch  (~80 MB)
+    All 9 features computed entirely with librosa — no external ML packages required.
     """
     y, sr = librosa.load(file_path, duration=90, mono=True)
 
     stft             = np.abs(librosa.stft(y))
     freqs            = librosa.fft_frequencies(sr=sr)
+    mfccs            = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
     y_harmonic, y_percussive = librosa.effects.hpss(y)
 
     tempo_val, beat_frames = _compute_tempo(y, sr)
 
-    result: dict[str, float] = {
-        "tempo":        round(tempo_val, 1),
-        "loudness":     round(_compute_loudness(y), 1),
-        "energy":       round(_compute_energy(y, stft, freqs), 3),
-        "danceability": round(_compute_danceability(y, sr, beat_frames), 3),
-        "acousticness": round(_compute_acousticness(y, y_harmonic), 3),
-        "liveness":     round(_compute_liveness(y, sr), 3),
-        "valence":      round(_compute_valence(y, sr, y_harmonic, y_percussive, tempo_val, stft, freqs), 3),
+    return {
+        "tempo":            round(tempo_val, 1),
+        "loudness":         round(_compute_loudness(y), 1),
+        "energy":           round(_compute_energy(y, stft, freqs), 3),
+        "danceability":     round(_compute_danceability(y, sr, beat_frames), 3),
+        "speechiness":      round(_compute_speechiness(y, sr, mfccs, stft, freqs), 3),
+        "instrumentalness": round(_compute_instrumentalness(mfccs, stft, freqs, sr, tempo_val), 3),
+        "acousticness":     round(_compute_acousticness(y, y_harmonic), 3),
+        "liveness":         round(_compute_liveness(y, sr), 3),
+        "valence":          round(_compute_valence(y, sr, y_harmonic, y_percussive, tempo_val, stft, freqs), 3),
     }
-
-    if WHISPER_AVAILABLE:
-        result["speechiness"] = round(_compute_speechiness_whisper(y, sr), 3)
-
-    if DEMUCS_AVAILABLE:
-        result["instrumentalness"] = round(_compute_instrumentalness_demucs(y, sr), 3)
-
-    return result
 
 
 # ── ROUTES ────────────────────────────────────────────────────────────────────

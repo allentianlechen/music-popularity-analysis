@@ -1208,7 +1208,7 @@
     </div>
     <div class="upload-spinner" id="upload-spinner">
       <div class="spinner-ring"></div>
-      <span>Analyzing audio… <span style="opacity:0.55">up to 60 seconds depending on installed models</span></span>
+      <span>Analyzing audio… <span style="opacity:0.55">~15 seconds</span></span>
     </div>
     <div class="upload-error" id="upload-error"></div>
 
@@ -1438,6 +1438,10 @@
         <div class="stat-item" style="grid-column:span 2">
           <span class="stat-key">Training Data</span>
           <span class="stat-val">~90,000 Spotify tracks</span>
+        </div>
+        <div class="stat-item" style="grid-column:span 2">
+          <span class="stat-key">Feature Extraction</span>
+          <span class="stat-val">Signal processing (librosa) — no ML models</span>
         </div>
       `;
 
@@ -1851,6 +1855,7 @@
     const chartEl = document.getElementById("importance-chart");
     if (!chartEl) return;
     const sorted = Object.entries(meta.importance)
+      .filter(([feat]) => feat !== "artist_avg_popularity")
       .sort((a, b) => b[1] - a[1])
       .slice(0, 12);
     const maxImp = sorted[0][1];
