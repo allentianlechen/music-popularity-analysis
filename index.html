@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com; script-src 'self' 'unsafe-inline'">
 <title>Song Popularity Predictor — Music Analytics</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Azeret+Mono:wght@300;400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
@@ -1212,18 +1213,6 @@
     </div>
     <div class="upload-error" id="upload-error"></div>
 
-    <div class="feature-cards-section" id="feature-cards-section">
-      <div class="feature-cards-header">
-        <span class="feature-cards-title">How close each feature is to optimal</span>
-        <button class="btn-clear" onclick="clearUpload()" aria-label="Clear uploaded audio and results">Clear</button>
-      </div>
-      <div class="feature-cards-grid" id="feature-cards-grid"></div>
-      <div class="upload-summary" id="upload-summary"></div>
-      <div class="upload-disclaimer" style="font-family:'Azeret Mono',monospace;font-size:11px;color:var(--muted);opacity:0.7;margin-top:10px;line-height:1.7;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.02);">
-        Feature scores show closeness to typical hit-track values — they do not directly predict popularity.<br>
-        Feature extraction is approximated via librosa and may differ from Spotify's own analysis.
-      </div>
-    </div>
   </div>
 </section>
 
@@ -1239,53 +1228,10 @@
     <div class="score-mini-verdict" id="score-mini-verdict">Upload a track to predict</div>
   </div>
 
-  <!-- LEFT: Sliders -->
-  <div class="sliders-panel">
-    <div class="section-header">
-      <div class="section-header-left">
-        <button id="btn-toggle-sliders" onclick="toggleSliders()"
-                style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:0;"
-                aria-expanded="false" aria-controls="sliders-container">
-          <span class="section-label" style="pointer-events:none;">Manual Sliders</span>
-          <span id="toggle-chevron"
-                style="font-family:'Azeret Mono',monospace;font-size:12px;color:var(--muted);
-                       transition:transform 0.3s;display:inline-block;">▸</span>
-        </button>
-        <span class="section-legend" style="font-size:12px;color:var(--muted);font-family:'Azeret Mono',monospace;">
-          Share of audio impact
-        </span>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
-        <button class="btn-clear" id="btn-reset" onclick="resetSliders()" style="flex-shrink:0;">Reset</button>
-        <button class="btn-optimize" id="btn-optimize" disabled onclick="applyRecommended()">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1L7.5 4.5H11L8.5 6.8L9.5 10.5L6 8.5L2.5 10.5L3.5 6.8L1 4.5H4.5L6 1Z" fill="currentColor"/>
-          </svg>
-          Apply hit-track profile
-        </button>
-      </div>
-    </div>
-    <div id="optimize-note" style="display:none;font-family:'Azeret Mono',monospace;font-size:13px;color:var(--warn);background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6;">
-      Audio features set to typical hit-track values. Score reflects audio characteristics only.
-    </div>
-    <div class="filter-row">
-      <div class="filter-group">
-        <label class="filter-label" for="genre-select">Genre — affects insights only</label>
-        <select class="filter-select" id="genre-select">
-          <option value="">All genres</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="sliders-container">
-      <div class="loading">Loading model<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
-    </div>
-  </div>
-
   <!-- Results (revealed after audio upload + predict) -->
   <div class="result-panel" id="result-panel" style="display:none;">
 
-    <div class="score-card" id="score-card">
+    <div class="score-card" id="score-card" aria-live="polite">
       <div class="score-label">Predicted Popularity Score</div>
 
       <div class="gauge-wrapper">
@@ -1402,26 +1348,7 @@
       ]);
       meta = await metaRes.json();
       recommendedValues = meta.recommended || null;
-      buildSliders(meta);
       renderRecommendedProfile(meta);
-
-      // Populate genre dropdown
-      if (genresRes) {
-        const genreList = await genresRes.json().catch(() => []);
-        const genreSelect = document.getElementById("genre-select");
-        if (genreSelect && Array.isArray(genreList)) {
-          genreList.forEach(g => {
-            const opt = document.createElement("option");
-            opt.value = g;
-            opt.textContent = g;
-            genreSelect.appendChild(opt);
-          });
-        }
-      }
-
-      if (recommendedValues) {
-        document.getElementById("btn-optimize").disabled = false;
-      }
 
       // Model stats card
       const infoEl = document.getElementById("model-info");
@@ -1463,17 +1390,9 @@
       // Feature importance chart (Task 3.3)
       renderImportanceChart(meta);
 
-      // Re-predict when genre changes
-      const genreSelectEl = document.getElementById("genre-select");
-      if (genreSelectEl) {
-        genreSelectEl.addEventListener("change", () => {
-          if (uploadedFeatures) predict();
-        });
-      }
       // No startup predict — results shown only after upload
     } catch (e) {
-      document.getElementById("sliders-container").innerHTML =
-        `<div class="loading" role="alert" style="color:#f87171">Could not connect to server.<br>Make sure APP.py is running on port 8080.</div>`;
+      console.error("loadMeta failed:", e);
     }
   }
 
@@ -1481,16 +1400,6 @@
     const pct = ((parseFloat(slider.value) - parseFloat(slider.min)) /
                  (parseFloat(slider.max)   - parseFloat(slider.min))) * 100;
     slider.style.setProperty('--fill-pct', pct.toFixed(1) + '%');
-  }
-
-  function toggleSliders() {
-    const container = document.getElementById('sliders-container');
-    const chevron   = document.getElementById('toggle-chevron');
-    const btn       = document.getElementById('btn-toggle-sliders');
-    const isOpen    = container.classList.contains('is-open');
-    container.classList.toggle('is-open', !isOpen);
-    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
-    if (btn)     btn.setAttribute('aria-expanded', String(!isOpen));
   }
 
   function renderRecommendedProfile(meta) {
@@ -1527,78 +1436,6 @@
     card.classList.add('is-visible');
   }
 
-  function buildSliders(meta) {
-    const container = document.getElementById("sliders-container");
-    container.innerHTML = "";
-
-    // Only build sliders for the 9 user-controllable features
-    const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
-
-    const sorted = [...sliderFeats].sort(
-      (a, b) => (meta.importance[b] || 0) - (meta.importance[a] || 0)
-    );
-
-    const audioImpSum = sorted.reduce((s, f) => s + (meta.importance[f] || 0), 0) || 1;
-
-    sorted.forEach((feat, idx) => {
-      const r      = meta.ranges[feat];
-      const imp    = meta.importance[feat];
-      const impPct = Math.round((imp / audioImpSum) * 100);
-
-      const isLoudness = feat === "loudness";
-      const isTempo    = feat === "tempo";
-      const fmtVal = v => isLoudness ? `${v.toFixed(1)} dB`
-                        : isTempo    ? `${Math.round(v)} BPM`
-                        : v.toFixed(2);
-
-      const group = document.createElement("div");
-      group.className = "slider-group";
-      group.style.animationDelay = `${idx * 60}ms`;
-
-      group.innerHTML = `
-        <div class="slider-header">
-          <span class="slider-name">${escapeHtml(feat)}</span>
-          <span class="slider-value" id="val-${escapeHtml(feat)}">${fmtVal(r.mean)}</span>
-        </div>
-        <div class="impact-row">
-          <span class="impact-label">Impact</span>
-          <div class="importance-bar-bg">
-            <div class="importance-bar" style="width:${Math.min(impPct,100)}%"></div>
-          </div>
-          <span style="font-family:'Azeret Mono',monospace;font-size:12px;color:var(--muted);flex-shrink:0;width:28px;text-align:right;">${impPct}%</span>
-        </div>
-        <div class="slider-desc">${escapeHtml(DESCRIPTIONS[feat] || "")}</div>
-        <input
-          type="range"
-          id="slider-${escapeHtml(feat)}"
-          aria-label="${escapeHtml(feat)} — ${escapeHtml(DESCRIPTIONS[feat] || feat)}"
-          aria-valuemin="${r.min}"
-          aria-valuemax="${r.max}"
-          aria-valuenow="${r.mean}"
-          min="${r.min}"
-          max="${r.max}"
-          step="${isTempo ? 1 : isLoudness ? 0.1 : 0.01}"
-          value="${r.mean}"
-        >
-      `;
-      container.appendChild(group);
-
-      const slider = group.querySelector(`#slider-${feat}`);
-      const valEl  = group.querySelector(`#val-${feat}`);
-      updateSliderFill(slider);
-
-      slider.addEventListener("input", () => {
-        valEl.textContent = fmtVal(parseFloat(slider.value));
-        slider.setAttribute('aria-valuenow', slider.value);
-        updateSliderFill(slider);
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(predict, 120);
-      });
-    });
-  }
-
   function updateTiers(score) {
     const tier  = TIERS.find(t => score >= t.min);
     const badge = document.getElementById('tier-badge');
@@ -1627,10 +1464,11 @@
 
     const body = {};
 
-    // Slider features — read from UI controls
+    // Slider features — use uploaded values when available, else dataset mean
     sliderFeats.forEach(feat => {
-      const slider = document.getElementById(`slider-${feat}`);
-      body[feat] = slider ? parseFloat(slider.value) : (meta.ranges[feat] ? meta.ranges[feat].mean : 0);
+      body[feat] = (uploadedFeatures && feat in uploadedFeatures)
+        ? uploadedFeatures[feat]
+        : (meta.ranges[feat] ? meta.ranges[feat].mean : 0);
     });
 
     // Non-slider features — use dataset mean (artist_avg_popularity always uses global mean)
@@ -1642,11 +1480,7 @@
       });
     }
 
-    // Optional genre for context-aware comparisons
-    const genreSelect = document.getElementById("genre-select");
-    if (genreSelect && genreSelect.value) {
-      body.genre = genreSelect.value;
-    }
+    // Genre select removed (was inside hidden sliders panel) — insights use dataset mean
 
     try {
       const res  = await fetch("/predict", {
@@ -1763,62 +1597,6 @@
     }
   }
 
-  function resetSliders() {
-    if (!meta) return;
-    const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
-    sliderFeats.forEach(feat => {
-      const slider = document.getElementById(`slider-${feat}`);
-      const valEl  = document.getElementById(`val-${feat}`);
-      if (!slider || !meta.ranges[feat]) return;
-      const mean = meta.ranges[feat].mean;
-      slider.value = mean;
-      slider.setAttribute('aria-valuenow', mean);
-      updateSliderFill(slider);
-      if (valEl) {
-        const isLoudness = feat === "loudness";
-        const isTempo    = feat === "tempo";
-        valEl.textContent = isLoudness ? `${parseFloat(mean).toFixed(1)} dB`
-                          : isTempo    ? `${Math.round(mean)} BPM`
-                          : parseFloat(mean).toFixed(2);
-      }
-    });
-    const note = document.getElementById('optimize-note');
-    if (note) note.style.display = 'none';
-    predict();
-  }
-
-  function applyRecommended() {
-    if (!meta || !recommendedValues) return;
-    const btn = document.getElementById('btn-optimize');
-    btn.disabled = true;
-    const note = document.getElementById('optimize-note');
-    if (note) note.style.display = 'block';
-
-    const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
-
-    sliderFeats.forEach(feat => {
-      const slider = document.getElementById(`slider-${feat}`);
-      const valEl  = document.getElementById(`val-${feat}`);
-      if (!slider || !(feat in recommendedValues)) return;
-
-      const v = recommendedValues[feat];
-      slider.value = v;
-      slider.setAttribute('aria-valuenow', v);
-      updateSliderFill(slider);
-
-      const isLoudness = feat === "loudness";
-      const isTempo    = feat === "tempo";
-      valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
-                        : isTempo    ? `${Math.round(v)} BPM`
-                        : parseFloat(v).toFixed(2);
-    });
-    predict().finally(() => { btn.disabled = false; });
-  }
-
   // ── FITNESS SCORE ──
   function fitnessScore(feat, value) {
     if (!meta || !meta.ranges[feat] || meta.recommended[feat] === undefined) return 50;
@@ -1832,32 +1610,24 @@
 
   // ── CLEAR UPLOAD ──
   function clearUpload() {
-    document.getElementById("feature-cards-section").classList.remove("is-visible");
     document.getElementById("upload-error").classList.remove("is-visible");
     uploadedFeatures = null;
     const rp = document.getElementById('result-panel');
     if (rp) rp.style.display = 'none';
-    if (!meta) return;
-    const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
-    sliderFeats.forEach(feat => {
-      const slider = document.getElementById(`slider-${feat}`);
-      if (!slider || !meta.ranges[feat]) return;
-      slider.value = meta.ranges[feat].mean;
-      slider.setAttribute("aria-valuenow", meta.ranges[feat].mean);
-      updateSliderFill(slider);
-    });
   }
 
   // ── IMPORTANCE CHART ──
   function renderImportanceChart(meta) {
     const chartEl = document.getElementById("importance-chart");
     if (!chartEl) return;
-    const sorted = Object.entries(meta.importance)
+    // Use audio_importance (renormalized to audio features only, sums to 100%)
+    // so bars reflect actual audio-model signal rather than the artist-dominated full model.
+    const impSource = meta.audio_importance || meta.importance;
+    const sorted = Object.entries(impSource)
       .filter(([feat]) => feat !== "artist_avg_popularity")
       .sort((a, b) => b[1] - a[1])
       .slice(0, 12);
+    if (!sorted.length) return;
     const maxImp = sorted[0][1];
     chartEl.innerHTML =
       `<div class="imp-title">Feature Importance</div>` +
@@ -1919,56 +1689,6 @@
         const sliderFeats = meta ? (meta.slider_features ||
           ["danceability","energy","loudness","speechiness","acousticness",
            "instrumentalness","liveness","valence","tempo"]) : [];
-
-        // Clear previous auto-fill indicators
-        document.querySelectorAll(".slider-auto-dot").forEach(el => el.remove());
-
-        sliderFeats.forEach(feat => {
-          const slider = document.getElementById(`slider-${feat}`);
-          const valEl  = document.getElementById(`val-${feat}`);
-          if (!slider) return;
-          if (feat in feats) {
-            const v = feats[feat];
-            slider.value = v;
-            slider.setAttribute("aria-valuenow", v);
-            updateSliderFill(slider);
-            if (valEl) {
-              const isLoudness = feat === "loudness";
-              const isTempo    = feat === "tempo";
-              valEl.textContent = isLoudness ? `${parseFloat(v).toFixed(1)} dB`
-                                : isTempo    ? `${Math.round(v)} BPM`
-                                : parseFloat(v).toFixed(3);
-            }
-            // Add green auto-fill dot next to the slider label
-            const labelEl = document.querySelector(`label[for="slider-${feat}"]`);
-            if (labelEl && !labelEl.querySelector(".slider-auto-dot")) {
-              const dot = document.createElement("span");
-              dot.className = "slider-auto-dot";
-              dot.title = "Auto-filled from audio";
-              dot.style.cssText = "display:inline-block;width:7px;height:7px;border-radius:50%;background:#1db954;margin-left:5px;vertical-align:middle;";
-              labelEl.appendChild(dot);
-            }
-          }
-        });
-
-        // Show note if fewer than 9 features were extracted
-        const extractedCount = Object.keys(feats).length;
-        let availNote = document.getElementById("audio-feature-availability-note");
-        if (!availNote) {
-          availNote = document.createElement("p");
-          availNote.id = "audio-feature-availability-note";
-          availNote.style.cssText = "margin:8px 0 0;font-size:12px;color:var(--muted);opacity:0.75;";
-          const uploadZone = document.getElementById("drop-zone");
-          if (uploadZone && uploadZone.parentNode) {
-            uploadZone.parentNode.insertBefore(availNote, uploadZone.nextSibling);
-          }
-        }
-        if (extractedCount < 9) {
-          availNote.textContent = `${extractedCount} of 9 features were extracted from audio. Install optional packages for full extraction (see README).`;
-          availNote.style.display = "block";
-        } else {
-          availNote.style.display = "none";
-        }
 
         uploadedFeatures = feats;
         // Feature cards removed — results panel provides the full breakdown

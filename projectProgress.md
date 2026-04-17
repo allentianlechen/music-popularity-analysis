@@ -1,7 +1,7 @@
 # analysisProject — Progress Tracker
 
 > Consolidated from PROJECT_PLAN.md, IMPROVEMENTS.md, memory, and verified against current code.
-> Last updated: 2026-04-15
+> Last updated: 2026-04-16
 
 ---
 
@@ -547,3 +547,129 @@ Total:                    target < 90s
 ```
 
 If Demucs on CPU exceeds 60s, reduce the clip cap from 20s to 10s. If total exceeds 90s, update the UI loading copy accordingly. Document the benchmarks in a comment at the top of `_extract_audio_features`.
+
+---
+
+## Phase 7 — Accuracy & Frontend Cleanup (Code Review 2026-04-16)
+
+> Findings from a focused review of the 9 audio-feature compute functions and the `index.html` UI after the librosa-only revert. Severity tags reflect impact on prediction accuracy or user-visible behaviour.
+
+### Audio Function Fixes
+
+#### Task 7.1 — Raise tempo cap and tighten half-tempo trigger  `CRITICAL` `DONE`
+
+**File:** `APP.py:39-40, 146-148, 192-195`
+
+Current `TEMPO_MAX_BPM = 165.0` plus the fold-down loop forcibly halves any tempo > 165 BPM. Spotify-trained tempo distribution extends to ~240 BPM, so DnB / hardcore / fast techno tracks are reported at half their true BPM and fed into the RF model with the wrong value.
+
+- Raise `TEMPO_MAX_BPM` to `210.0`.
+- Lift the windowed half-tempo trigger from `0.50` back to `0.65` (perceptual research level), and gate it behind `len(beat_frames) >= 8` to avoid noisy disambiguation on short or sparse-onset clips.
+
+#### Task 7.2 — Fix `_compute_danceability` PLP scoring direction  `HIGH` `DONE`
+
+**File:** `APP.py:247-249`
+
+`np.percentile(pulse, 75) / np.max(pulse)` collapses to ~0 for tracks with sharp, well-spaced beats (the most danceable case) and inflates for smeared rhythms (least danceable). Replace with beat-frame onset strength:
+
+```python
+plp_score = float(np.clip(onset_env[beat_frames].mean() / (onset_env.max() + 1e-9), 0.0, 1.0))
+```
+
+#### Task 7.3 — Re-scale spectral centroid term in `_compute_energy`  `HIGH` `DONE`
+
+**File:** `APP.py:225-227`
+
+Spectral centroid divided by Nyquist tops out near 0.36 for typical music, so the `centroid_norm * 0.2` term contributes only 0.03–0.07. Either drop the term or normalize against `nyquist * 0.5` so the value spans [0, 1] as the clip implies.
+
+#### Task 7.4 — Tighten harmonic-exclusion in `_compute_instrumentalness`  `HIGH` `DONE`
+
+**File:** `APP.py:303-314`
+
+For 100–140 BPM tracks, the ±1 Hz exclusion zone wipes out the entire 4.5–7 Hz vibrato band (8th-note rate at 120 BPM = 4 Hz; 16th-note rate = 8 Hz). Vibrato detection becomes effectively disabled.
+
+- Tighten exclusion from `> 1.0` Hz away to `> 0.5` Hz.
+- Add `if ac[0] < 1e-6: vibrato_score = 0.0` short-circuit to avoid divide-by-near-zero on near-DC centroids.
+
+#### Task 7.5 — Re-tune `_compute_valence` mode-score mapping  `MEDIUM` `DONE`
+
+**File:** `APP.py:387-388`
+
+`(diff + 0.5) / 1.0` saturates the range — clear major maps to only 0.55–0.90 and ambiguous tracks pile up around 0.5. Use `np.clip((diff + 0.3) / 0.6, 0.0, 1.0)` so the typical signed difference range maps across the full [0, 1].
+
+#### Task 7.6 — Promote `_compute_liveness` magic threshold + clarify mask intent  `MEDIUM` `DONE`
+
+**File:** `APP.py:344-371`
+
+- Promote hardcoded `-45.0` to module-level `LIVENESS_QUIET_DB: float = -45.0`.
+- `quiet_mask` (db < -45) and `active_mask` (db > -50) overlap in (-50, -45). Clarify intent — quiet sections should likely be `(-50, -45)` band and active should be `db > -25` to make the DR ratio meaningful.
+
+#### Task 7.7 — Switch `_compute_loudness` to energy-domain mean  `MEDIUM` `DONE`
+
+**File:** `APP.py:200-206`
+
+Arithmetic mean of dB under-weights loud frames vs Spotify's LUFS-style integration. Replace with `10 * np.log10(np.mean(rms[active_mask]**2) + 1e-12)` to better match the training-data convention.
+
+#### Task 7.8 — Add tonality-stability check to `_compute_acousticness`  `MEDIUM` `DONE`
+
+**File:** `APP.py:323-341`
+
+Pure digital synths score ≥ 0.9 acousticness because of low spectral flatness + high HPSS harmonic ratio. Add a third term that distinguishes acoustic sustain from synthetic sustain (e.g. centroid std-dev or attack-time variability) and reduce `harm_ratio` weight accordingly.
+
+#### Task 7.9 — Split `_compute_tempo` into helpers  `LOW` `DONE`
+
+**File:** `APP.py:119-197`
+
+79 lines, above the 50-line guideline. Extract `_score_tempo_with_tempogram`, `_apply_top3_tiebreaker`, `_apply_plp_check` into private helpers.
+
+---
+
+### Frontend Cleanup
+
+#### Task 7.10 — Delete dead slider/feature-card code  `HIGH` `DONE`
+
+**File:** `index.html:171-174, 944-945, 1243-1283, 1834`
+
+`.sliders-panel { display: none; }` and `.feature-cards-section { display: none; }` are never toggled visible. ~250 lines of HTML/JS (`toggleSliders`, `applyRecommended`, `resetSliders`, `buildSliders`, optimize button, feature-cards grid) run with no user-visible effect. Either delete the dead code or restore visibility — pick one.
+
+#### Task 7.11 — Remove non-functional auto-fill dot + 9-feature note  `HIGH` `DONE`
+
+**File:** `index.html:1943-1971`
+
+- `document.querySelector('label[for="slider-${feat}"]')` returns `null` because sliders have `aria-label` only — green dots never appear.
+- After the librosa-only refactor `_extract_audio_features` always returns 9 features, so the `extractedCount < 9` branch never fires.
+
+Delete both blocks from `processAudioFile`.
+
+#### Task 7.12 — Use `meta.audio_importance` in slider builder + importance chart  `MEDIUM` `DONE`
+
+**File:** `index.html:1540-1543, 1857`
+
+Backend already exposes `meta.audio_importance` (renormalized to sum to 1 over slider features). Slider impact bars and the importance chart still read `meta.importance` and only filter `artist_avg_popularity` ad-hoc. Switch both to `meta.audio_importance` so percentages sum cleanly to 100 % and reflect the audio-only model.
+
+#### Task 7.13 — Add `aria-live` on desktop score gauge  `MEDIUM` `DONE`
+
+**File:** `index.html:1300-1304, 1673-1680`
+
+Score number lives inside an SVG `<text>`; screen readers don't reliably announce SVG text changes. Mobile sticky bar already has `aria-live="polite"` (L1234) but the desktop gauge does not. Mirror the score into a hidden `sr-only` live region or add `aria-live="polite"` to `.score-card`.
+
+#### Task 7.14 — Remove inline event handlers + add CSP meta tag  `LOW` `DONE`
+
+**File:** `index.html:1218, 1246, 1259-1260, head`
+
+Replace `onclick="..."` with `addEventListener` registrations in the script block, then add `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com">`.
+
+#### Task 7.15 — Self-host Google Fonts with `font-display: swap`  `LOW` `SKIP`
+> Requires downloading font files to disk — deferred; functional impact is minimal.
+
+**File:** `index.html:7`
+
+External CDN adds 3 round trips before first paint. Self-hosting also closes the privacy concern around Google's font CDN.
+
+---
+
+### Implementation Order (Recommended)
+
+1. Critical/High audio fixes first (7.1 → 7.4): single PR, regenerate `model.pkl` is **not** required (these only affect audio extraction at inference time).
+2. Frontend cleanup (7.10 → 7.13): single PR, delete-only changes for 7.10/7.11 reduce surface area.
+3. Medium/Low items (7.5 → 7.9, 7.14 → 7.15): bundle as time allows.
+4. Re-run `python3 -m pytest test_app.py -v` after each step.

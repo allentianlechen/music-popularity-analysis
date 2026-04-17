@@ -335,7 +335,7 @@ class TestAudioFeatureHelpers:
         import librosa
         y, sr = sine_wave
         y_harmonic, _ = librosa.effects.hpss(y)
-        assert 0.0 <= _compute_acousticness(y, y_harmonic) <= 1.0
+        assert 0.0 <= _compute_acousticness(y, sr, y_harmonic) <= 1.0
 
     def test_compute_liveness_in_0_1(self, sine_wave):
         from APP import _compute_liveness

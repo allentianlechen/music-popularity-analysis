@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
 UPLOAD_MAX_BYTES: int        = 50 * 1024 * 1024          # 50 MB
 TEMPO_MIN_BPM: float         = 60.0
-TEMPO_MAX_BPM: float         = 165.0
+TEMPO_MAX_BPM: float         = 210.0
 TEMPO_START_BPM: int         = 100
 LOUDNESS_MIN_DB: float       = -60.0
 LOUDNESS_MAX_DB: float       = 0.0
@@ -46,6 +46,8 @@ INSTR_VAR_DIVISOR: float     = 300.0
 MFCC_DELTA_NORM: float       = 5.0
 MFCC_DELTA2_NORM: float      = 8.0
 ZCR_NORM: float              = 0.15
+LIVENESS_QUIET_DB: float     = -45.0   # frames below this are considered quiet
+LIVENESS_ACTIVE_DB: float    = -25.0   # frames above this are considered active
 
 ALLOWED_AUDIO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
@@ -116,12 +118,65 @@ def _audio_importance_normalized() -> dict[str, float]:
 
 # ── AUDIO FEATURE HELPERS ─────────────────────────────────────────────────────
 
+def _score_tempo_bpm(bpm: float, tg_freqs: "np.ndarray", mean_tg: "np.ndarray") -> float:
+    """Mean tempogram energy in a ±8 % BPM window (robust to spectral smearing at low BPM)."""
+    lo   = bpm * 0.92
+    hi   = bpm * 1.08
+    mask = (tg_freqs >= lo) & (tg_freqs <= hi)
+    if not np.any(mask):
+        return float(mean_tg[int(np.argmin(np.abs(tg_freqs - bpm)))])
+    return float(np.mean(mean_tg[mask]))
+
+
+def _tempo_top3_tiebreaker(
+    tempo_val: float, tempo_bt: float, half_bt: float,
+    tg_freqs: "np.ndarray", mean_tg: "np.ndarray",
+) -> float:
+    """Refine tempo using top-3 tempogram peaks as a tie-breaker."""
+    valid_mask  = (tg_freqs >= TEMPO_MIN_BPM) & (tg_freqs <= TEMPO_MAX_BPM)
+    valid_freqs = tg_freqs[valid_mask]
+    valid_tg    = mean_tg[valid_mask]
+    if len(valid_tg) < 3:
+        return tempo_val
+    top3_bpms = valid_freqs[np.argsort(valid_tg)[-3:][::-1]]
+    in_top3   = any(abs(tempo_val - p) / (tempo_val + 1e-6) < 0.08 for p in top3_bpms)
+    if not in_top3:
+        for cand in (half_bt, tempo_bt * 2.0):
+            if (TEMPO_MIN_BPM <= cand <= TEMPO_MAX_BPM
+                    and any(abs(cand - p) / (cand + 1e-6) < 0.08 for p in top3_bpms)):
+                return cand
+        return float(top3_bpms[0])
+    return tempo_val
+
+
+def _tempo_plp_check(
+    tempo_val: float, tempo_bt: float, half_bt: float,
+    onset_env: "np.ndarray", sr: int,
+) -> float:
+    """If PLP period agrees with half-tempo but beat_track does not, prefer half-tempo."""
+    hop        = 512
+    fps        = sr / hop
+    pulse      = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
+    ac         = librosa.autocorrelate(pulse, max_size=len(pulse) // 2)
+    plp_period = float(np.argmax(ac[1:]) + 1)
+    plp_bpm    = 60.0 * fps / (plp_period + 1e-6)
+    while plp_bpm > TEMPO_MAX_BPM:
+        plp_bpm /= 2.0
+    while plp_bpm < TEMPO_MIN_BPM:
+        plp_bpm *= 2.0
+    if (abs(plp_bpm - tempo_bt) / (tempo_bt + 1e-6) > 0.15
+            and TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
+            and abs(plp_bpm - half_bt) / (half_bt + 1e-6) < 0.10):
+        return half_bt
+    return tempo_val
+
+
 def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
     """Return (tempo_bpm, beat_frames). Multi-stage disambiguation:
-    1. Windowed tempogram score (±8 % BPM window) replaces single-bin lookup.
-    2. Half-tempo preferred at ≥50 % relative support (down from 65 %).
-    3. Top-3 tempogram peaks used as tie-breaker when beat_track candidate is absent.
-    4. PLP cross-check: if PLP period agrees with half-tempo, prefer half-tempo.
+    1. Windowed tempogram score (±8 % BPM window) via _score_tempo_bpm.
+    2. Half-tempo preferred at ≥65 % relative support, gated on ≥8 beat frames.
+    3. Top-3 tempogram peaks as tie-breaker via _tempo_top3_tiebreaker.
+    4. PLP cross-check via _tempo_plp_check.
     """
     tempo_bt, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
     tempo_bt = float(np.atleast_1d(tempo_bt)[0])
@@ -131,20 +186,14 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
     tg_freqs  = librosa.tempo_frequencies(tg.shape[0], sr=sr)
     mean_tg   = np.mean(np.abs(tg), axis=1)
 
-    def _tg_score(bpm: float) -> float:
-        """Mean tempogram energy in a ±8 % BPM window (robust to spectral smearing)."""
-        lo   = bpm * 0.92
-        hi   = bpm * 1.08
-        mask = (tg_freqs >= lo) & (tg_freqs <= hi)
-        if not np.any(mask):
-            return float(mean_tg[int(np.argmin(np.abs(tg_freqs - bpm)))])
-        return float(np.mean(mean_tg[mask]))
-
     half_bt = tempo_bt / 2.0
 
-    # ── Step 1: windowed half-tempo check at 50 % threshold ──────────────────
-    if (TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
-            and _tg_score(half_bt) >= _tg_score(tempo_bt) * 0.50):
+    # Step 1: windowed half-tempo check — gated on ≥8 beat frames to avoid
+    # noisy disambiguation on short or sparse-onset clips.
+    if (len(beat_frames) >= 8
+            and TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
+            and _score_tempo_bpm(half_bt, tg_freqs, mean_tg)
+                >= _score_tempo_bpm(tempo_bt, tg_freqs, mean_tg) * 0.65):
         tempo_val = half_bt
     elif len(beat_frames) < 4:
         tempo_val = float(np.atleast_1d(
@@ -153,42 +202,13 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
     else:
         tempo_val = tempo_bt
 
-    # ── Step 2: top-3 peak tie-breaker ───────────────────────────────────────
-    valid_mask  = (tg_freqs >= TEMPO_MIN_BPM) & (tg_freqs <= TEMPO_MAX_BPM)
-    valid_freqs = tg_freqs[valid_mask]
-    valid_tg    = mean_tg[valid_mask]
-    if len(valid_tg) >= 3:
-        top3_bpms = valid_freqs[np.argsort(valid_tg)[-3:][::-1]]
-        in_top3   = any(
-            abs(tempo_val - p) / (tempo_val + 1e-6) < 0.08 for p in top3_bpms
-        )
-        if not in_top3:
-            for cand in (half_bt, tempo_bt * 2.0):
-                if (TEMPO_MIN_BPM <= cand <= TEMPO_MAX_BPM
-                        and any(abs(cand - p) / (cand + 1e-6) < 0.08 for p in top3_bpms)):
-                    tempo_val = cand
-                    break
-            else:
-                tempo_val = float(top3_bpms[0])
+    # Step 2: top-3 peak tie-breaker
+    tempo_val = _tempo_top3_tiebreaker(tempo_val, tempo_bt, half_bt, tg_freqs, mean_tg)
 
-    # ── Step 3: PLP cross-check ───────────────────────────────────────────────
-    pulse  = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
-    hop    = 512
-    fps    = sr / hop
-    ac     = librosa.autocorrelate(pulse, max_size=len(pulse) // 2)
-    plp_period = float(np.argmax(ac[1:]) + 1)
-    plp_bpm    = 60.0 * fps / (plp_period + 1e-6)
-    while plp_bpm > TEMPO_MAX_BPM:
-        plp_bpm /= 2.0
-    while plp_bpm < TEMPO_MIN_BPM:
-        plp_bpm *= 2.0
+    # Step 3: PLP cross-check
+    tempo_val = _tempo_plp_check(tempo_val, tempo_bt, half_bt, onset_env, sr)
 
-    if (abs(plp_bpm - tempo_bt) / (tempo_bt + 1e-6) > 0.15
-            and TEMPO_MIN_BPM <= half_bt <= TEMPO_MAX_BPM
-            and abs(plp_bpm - half_bt) / (half_bt + 1e-6) < 0.10):
-        tempo_val = half_bt
-
-    # ── Final fold-down safety net ────────────────────────────────────────────
+    # Final fold-down safety net
     while tempo_val > TEMPO_MAX_BPM:
         tempo_val /= 2.0
     while tempo_val < TEMPO_MIN_BPM:
@@ -198,11 +218,18 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
 
 
 def _compute_loudness(y: "np.ndarray") -> float:
-    """Power-weighted active-frame loudness; excludes silence gaps below -50 dB."""
-    rms = librosa.feature.rms(y=y)[0]
-    db  = librosa.amplitude_to_db(rms + 1e-9)
-    active = db[db > SILENCE_THRESHOLD_DB]
-    loudness = float(np.mean(active)) if len(active) > 0 else float(np.mean(db))
+    """Power-weighted active-frame loudness (energy-domain mean, LUFS-style).
+
+    Arithmetic mean of dB under-weights loud frames vs Spotify's LUFS convention.
+    10*log10(mean(rms²)) better matches the training-data distribution.
+    """
+    rms         = librosa.feature.rms(y=y)[0]
+    db          = librosa.amplitude_to_db(rms + 1e-9)
+    active_mask = db > SILENCE_THRESHOLD_DB
+    if active_mask.sum() > 0:
+        loudness = float(10.0 * np.log10(np.mean(rms[active_mask] ** 2) + 1e-12))
+    else:
+        loudness = float(10.0 * np.log10(np.mean(rms ** 2) + 1e-12))
     return float(np.clip(loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB))
 
 
@@ -221,9 +248,10 @@ def _compute_energy(
     total_e  = float(np.sum(stft ** 2)) + 1e-9
     hf_ratio = float(np.clip(np.sum(stft[hf_mask] ** 2) / total_e * 4.0, 0.0, 1.0))
 
-    # Spectral centroid normalized to Nyquist
-    nyquist      = float(freqs[-1])
-    spec_centroid = float(np.sum(freqs[:, np.newaxis] * stft ** 2) / (total_e * nyquist))
+    # Spectral centroid normalized to half-Nyquist so typical music spans [0, 1]
+    # (dividing by full Nyquist tops out near 0.36 and the term barely contributes)
+    nyquist       = float(freqs[-1])
+    spec_centroid = float(np.sum(freqs[:, np.newaxis] * stft ** 2) / (total_e * nyquist * 0.5))
     centroid_norm = float(np.clip(spec_centroid, 0.0, 1.0))
 
     return float(np.clip(loudness_norm * 0.5 + hf_ratio * 0.3 + centroid_norm * 0.2, 0.0, 1.0))
@@ -232,21 +260,25 @@ def _compute_energy(
 def _compute_danceability(
     y: "np.ndarray", sr: int, beat_frames: "np.ndarray"
 ) -> float:
-    """Danceability [0,1]: IBI consistency + PLP strength."""
+    """Danceability [0,1]: IBI consistency + beat-frame onset strength.
+
+    Previous plp_score = percentile/max collapsed to ~0 for sharp, well-spaced beats
+    (the most danceable case). Replaced with mean onset strength at beat positions,
+    which correctly peaks for rhythmically strong tracks.
+    """
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+
     if len(beat_frames) >= 4:
-        beat_times  = librosa.frames_to_time(beat_frames, sr=sr)
-        ibis        = np.diff(beat_times)
-        ibi_cv      = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
-        ibi_score   = float(np.clip(1.0 - ibi_cv, 0.0, 1.0))
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+        ibis       = np.diff(beat_times)
+        ibi_cv     = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
+        ibi_score  = float(np.clip(1.0 - ibi_cv, 0.0, 1.0))
+        plp_score  = float(np.clip(
+            onset_env[beat_frames].mean() / (onset_env.max() + 1e-9), 0.0, 1.0
+        ))
     else:
         ibi_score = 0.3
-
-    onset_env  = librosa.onset.onset_strength(y=y, sr=sr)
-    pulse      = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
-    # 75th-percentile / peak: more robust to sparse PLP responses than mean/peak
-    plp_score  = float(np.clip(
-        np.percentile(pulse, 75) / (np.max(pulse) + 1e-6), 0.0, 1.0
-    ))
+        plp_score = 0.3
 
     return float(np.clip(ibi_score * 0.5 + plp_score * 0.5, 0.0, 1.0))
 
@@ -307,24 +339,30 @@ def _compute_instrumentalness(
         tempo_val * 2.0 / 60.0,
         tempo_val * 1.0 / 60.0,
     )
-    valid_lags = [
-        lag for lag in range(lag_lo, lag_hi + 1)
-        if lag < len(ac_normed)
-        and all(abs(fps / lag - exc) > 1.0 for exc in excluded_hz)
-    ]
-
-    vibrato_score  = float(np.clip(
-        float(np.max(ac_normed[valid_lags])) if valid_lags else 0.0, 0.0, 1.0
-    ))
+    if ac[0] < 1e-6:
+        # Near-DC centroid: avoid divide-by-near-zero; no meaningful vibrato
+        vibrato_score = 0.0
+    else:
+        # Tighter ±0.5 Hz exclusion zone (was ±1.0 Hz) so 100–140 BPM tracks
+        # don't accidentally mask the entire 4.5–7 Hz vibrato band.
+        valid_lags = [
+            lag for lag in range(lag_lo, lag_hi + 1)
+            if lag < len(ac_normed)
+            and all(abs(fps / lag - exc) > 0.5 for exc in excluded_hz)
+        ]
+        vibrato_score = float(np.clip(
+            float(np.max(ac_normed[valid_lags])) if valid_lags else 0.0, 0.0, 1.0
+        ))
     vocal_presence = float(np.clip(mfcc_var_norm * 0.40 + vibrato_score * 0.60, 0.0, 1.0))
     return float(np.clip(1.0 - vocal_presence, 0.0, 1.0))
 
 
-def _compute_acousticness(y: "np.ndarray", y_harmonic: "np.ndarray") -> float:
-    """Acousticness [0,1]: HPSS harmonic ratio + harmonic flatness + full-spectrum flatness penalty.
+def _compute_acousticness(y: "np.ndarray", sr: int, y_harmonic: "np.ndarray") -> float:
+    """Acousticness [0,1]: HPSS harmonic ratio + flatness penalty + centroid variability.
 
-    Synthesizers produce tonal harmonics (high harm_ratio) but have flatter overtone
-    structure than acoustic instruments. The full-spectrum flatness term penalises them.
+    Synthesizers produce tonal harmonics (high harm_ratio) but have stable, flat overtone
+    structure. Acoustic instruments have both lower flatness AND higher centroid variability
+    (attack/sustain/decay differences). The centroid CV term distinguishes them.
     """
     harm_e  = float(np.mean(y_harmonic ** 2)) + 1e-9
     total_e = float(np.mean(y ** 2)) + 1e-9
@@ -336,8 +374,12 @@ def _compute_acousticness(y: "np.ndarray", y_harmonic: "np.ndarray") -> float:
     full_flatness      = float(np.mean(librosa.feature.spectral_flatness(y=y)))
     full_flatness_term = float(np.clip(1.0 - full_flatness * 10.0, 0.0, 1.0))
 
+    centroid    = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+    centroid_cv = float(np.clip(np.std(centroid) / (np.mean(centroid) + 1e-9), 0.0, 1.0))
+
     return float(np.clip(
-        harm_ratio * 0.5 + flatness_score * 0.3 + full_flatness_term * 0.2, 0.0, 1.0
+        harm_ratio * 0.4 + flatness_score * 0.3 + full_flatness_term * 0.2 + centroid_cv * 0.1,
+        0.0, 1.0,
     ))
 
 
@@ -351,8 +393,10 @@ def _compute_liveness(y: "np.ndarray", sr: int) -> float:
     rms_frames = librosa.feature.rms(y=y)[0]
     db_frames  = librosa.amplitude_to_db(rms_frames + 1e-9)
 
-    quiet_mask  = db_frames < -45.0
-    active_mask = db_frames > SILENCE_THRESHOLD_DB
+    # quiet = (-50, -45) band: frames low enough to be near-silent but above true noise floor
+    # active = db > -25: loud frames only; avoids near-silence biasing the DR ratio
+    quiet_mask  = (db_frames >= SILENCE_THRESHOLD_DB) & (db_frames < LIVENESS_QUIET_DB)
+    active_mask = db_frames > LIVENESS_ACTIVE_DB
 
     if quiet_mask.sum() >= 5 and active_mask.sum() >= 5:
         q_rms = float(np.mean(rms_frames[quiet_mask]))
@@ -385,7 +429,9 @@ def _compute_valence(
     cors_maj = [float(np.corrcoef(np.roll(chroma_mean, i), major_p)[0, 1]) for i in range(12)]
     cors_min = [float(np.corrcoef(np.roll(chroma_mean, i), minor_p)[0, 1]) for i in range(12)]
     diff     = max(cors_maj) - max(cors_min)
-    mode_score = float(np.clip((diff + 0.5) / 1.0, 0.0, 1.0))
+    # (diff + 0.5) / 1.0 saturated at 0.55–0.90 for clear major — replace with
+    # tighter window so the full [0, 1] range is used in practice.
+    mode_score = float(np.clip((diff + 0.3) / 0.6, 0.0, 1.0))
 
     tempo_norm = float(np.clip(
         (tempo_val - TEMPO_MIN_BPM) / (TEMPO_MAX_BPM - TEMPO_MIN_BPM), 0.0, 1.0
@@ -428,7 +474,7 @@ def _extract_audio_features(file_path: str) -> dict[str, float]:
         "danceability":     round(_compute_danceability(y, sr, beat_frames), 3),
         "speechiness":      round(_compute_speechiness(y, sr, mfccs, stft, freqs), 3),
         "instrumentalness": round(_compute_instrumentalness(mfccs, stft, freqs, sr, tempo_val), 3),
-        "acousticness":     round(_compute_acousticness(y, y_harmonic), 3),
+        "acousticness":     round(_compute_acousticness(y, sr, y_harmonic), 3),
         "liveness":         round(_compute_liveness(y, sr), 3),
         "valence":          round(_compute_valence(y, sr, y_harmonic, y_percussive, tempo_val, stft, freqs), 3),
     }
