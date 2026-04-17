@@ -603,5 +603,6 @@ def predict() -> tuple[Any, int]:
 
 if __name__ == "__main__":
     debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    logger.info("Starting server at http://127.0.0.1:8080  (debug=%s)", debug_mode)
-    app.run(debug=debug_mode, port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    logger.info("Starting server at http://127.0.0.1:%d  (debug=%s)", port, debug_mode)
+    app.run(debug=debug_mode, host="0.0.0.0", port=port)

@@ -1,7 +1,7 @@
-# Large data files — download from Kaggle (Spotify Tracks Dataset)
+# Large raw data — download from Kaggle (Spotify Tracks Dataset)
 dataset.csv
-cleaned.csv
 archive.zip
+# cleaned.csv is tracked (15 MB) — needed by analyze.py at deploy time
 
 # Trained model — regenerate with: python3 analyze.py
 model.pkl
