@@ -273,9 +273,10 @@ def _compute_danceability(
         ibis       = np.diff(beat_times)
         ibi_cv     = float(np.std(ibis) / (np.mean(ibis) + 1e-6))
         ibi_score  = float(np.clip(1.0 - ibi_cv, 0.0, 1.0))
+        safe_frames = beat_frames[beat_frames < len(onset_env)]
         plp_score  = float(np.clip(
-            onset_env[beat_frames].mean() / (onset_env.max() + 1e-9), 0.0, 1.0
-        ))
+            onset_env[safe_frames].mean() / (onset_env.max() + 1e-9), 0.0, 1.0
+        )) if len(safe_frames) > 0 else 0.3
     else:
         ibi_score = 0.3
         plp_score = 0.3

@@ -1342,10 +1342,7 @@
 
   async function loadMeta() {
     try {
-      const [metaRes, genresRes] = await Promise.all([
-        fetch("/meta"),
-        fetch("/genres").catch(() => null),
-      ]);
+      const metaRes = await fetch("/meta");
       meta = await metaRes.json();
       recommendedValues = meta.recommended || null;
       renderRecommendedProfile(meta);
@@ -1392,14 +1389,12 @@
 
       // No startup predict — results shown only after upload
     } catch (e) {
-      console.error("loadMeta failed:", e);
+      const errEl = document.getElementById("upload-error");
+      if (errEl) {
+        errEl.textContent = "Could not connect to server. Make sure APP.py is running on port 8080.";
+        errEl.classList.add("is-visible");
+      }
     }
-  }
-
-  function updateSliderFill(slider) {
-    const pct = ((parseFloat(slider.value) - parseFloat(slider.min)) /
-                 (parseFloat(slider.max)   - parseFloat(slider.min))) * 100;
-    slider.style.setProperty('--fill-pct', pct.toFixed(1) + '%');
   }
 
   function renderRecommendedProfile(meta) {
@@ -1495,13 +1490,10 @@
         return;
       }
 
-      // Update insights title to reflect genre context
+      // Update insights title (genre select removed — always uses dataset average)
       const insightsTitleEl = document.getElementById('insights-title');
       if (insightsTitleEl) {
-        const selectedGenre = document.getElementById('genre-select')?.value;
-        insightsTitleEl.textContent = selectedGenre
-          ? `Feature Insights — Your values vs. ${selectedGenre} average`
-          : 'Feature Insights — Your values vs. dataset average';
+        insightsTitleEl.textContent = 'Feature Insights — Your values vs. dataset average';
       }
 
       const scoreEl   = document.getElementById("score-number");
