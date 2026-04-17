@@ -1663,7 +1663,6 @@
 
     async function processAudioFile(file) {
       errorEl.classList.remove("is-visible");
-      document.getElementById("feature-cards-section").classList.remove("is-visible");
       dropZone.classList.add("is-loading");
       spinner.classList.add("is-visible");
 
@@ -1677,12 +1676,7 @@
           errorEl.classList.add("is-visible");
           return;
         }
-        const feats = data.features;
-        const sliderFeats = meta ? (meta.slider_features ||
-          ["danceability","energy","loudness","speechiness","acousticness",
-           "instrumentalness","liveness","valence","tempo"]) : [];
-
-        uploadedFeatures = feats;
+        uploadedFeatures = data.features;
         // Feature cards removed — results panel provides the full breakdown
         await predict();
         const rp = document.getElementById('result-panel');
