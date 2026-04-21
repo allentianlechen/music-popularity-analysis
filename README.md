@@ -33,7 +33,8 @@ analysisProject/
   clean.py          Preprocesses dataset.csv into cleaned.csv
   config.py         Shared feature lists (SLIDER_FEATURES, EXTRA_FEATURES)
   index.html        Single-page UI (upload, gauge, insights, importance chart)
-  test_app.py       pytest test suite (35 tests)
+  test_app.py       pytest test suite (38 tests)
+  analysis.ipynb    Comprehensive EDA, model comparison, SHAP, residual analysis
   eda.py            Standalone EDA script (popularity distribution charts)
   genre_analysis.py Per-genre model analysis script
   cleaned.csv       Preprocessed dataset (tracked in git, 15 MB)
@@ -92,12 +93,27 @@ All 9 features are computed with librosa to approximate Spotify's audio analysis
 
 ## Model Performance
 
-- **R² score:** ~0.53 (full model with artist feature)
-- **Audio-only R²:** ~0.08 (audio features alone)
-- **Mean error:** ~18 popularity points
-- **Cross-validation:** 5-fold
+| Metric | Value |
+|--------|-------|
+| R² (full model, leakage-free) | 0.446 |
+| R² (audio-only, no artist) | 0.257 |
+| MAE | 9.7 popularity points |
+| CV R² (5-fold, pipeline) | 0.439 +/- 0.008 |
 
 The gap between full and audio-only R² reflects reality: song popularity is driven more by artist fame, marketing, and playlist placement than audio characteristics alone. The model is honest about this.
+
+## Analysis & Findings
+
+See [`analysis.ipynb`](analysis.ipynb) for the full exploratory data analysis and model comparison.
+
+**Key findings:**
+
+1. **Audio features alone explain ~8% of popularity variance** (univariate R² near zero for each feature). Popularity is not about how a song sounds.
+2. **Artist fame is the dominant predictor.** Adding `artist_avg_popularity` (computed from training data only, no leakage) jumps R² from ~0.08 to ~0.45.
+3. **The remaining ~55% is unexplained** — driven by playlist placement, marketing, release timing, and algorithmic recommendations.
+4. **Data leakage was identified and fixed.** The original implementation computed artist averages from the full dataset (including test rows). The corrected `ArtistAvgTransformer` computes per-artist means from training data only and is used in a sklearn Pipeline for proper cross-validation.
+5. **Statistical significance != practical significance.** With 90k observations, every audio feature correlates "significantly" with popularity (p < 0.05), but all are practically weak (|r| < 0.15).
+6. **Model comparison:** Dummy, Ridge, RandomForest, and XGBoost were compared with hyperparameter tuning. Results, SHAP interpretability, and residual analysis are in the notebook.
 
 ## Deployment
 

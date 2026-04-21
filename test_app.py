@@ -353,3 +353,80 @@ class TestAudioFeatureHelpers:
             shared_features["stft"], shared_features["freqs"],
         )
         assert 0.0 <= val <= 1.0
+
+
+# ── Data leakage tests ──────────────────────────────────────────────────────
+
+class TestArtistAvgTransformer:
+    """Verify ArtistAvgTransformer computes from training data only."""
+
+    @pytest.fixture()
+    def sample_data(self):
+        import pandas as pd
+        X = pd.DataFrame({
+            "feat1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "artists": ["A", "A", "B", "B", "C", "C"],
+        })
+        y = pd.Series([10, 20, 30, 40, 50, 60])
+        return X, y
+
+    def test_unseen_artist_gets_global_mean(self, sample_data):
+        from analyze import ArtistAvgTransformer
+        import pandas as pd
+        X, y = sample_data
+        t = ArtistAvgTransformer()
+        t.fit(X, y)
+        X_new = pd.DataFrame({"feat1": [99.0], "artists": ["UNKNOWN"]})
+        result = t.transform(X_new)
+        assert "artist_avg_popularity" in result.columns
+        assert "artists" not in result.columns
+        assert result["artist_avg_popularity"].iloc[0] == t.global_mean_
+
+    def test_no_leakage(self, sample_data):
+        """Transform output must match training-set mean, not full-dataset mean."""
+        from analyze import ArtistAvgTransformer
+        import pandas as pd
+        X, y = sample_data
+        # Split: train = first 4, test = last 2
+        X_train, y_train = X.iloc[:4], y.iloc[:4]
+        X_test = X.iloc[4:]
+
+        t = ArtistAvgTransformer()
+        t.fit(X_train, y_train)
+        result = t.transform(X_test)
+
+        # Artist C not in training data → should get global_mean_ from training
+        train_global_mean = round(float(y_train.mean()), 1)
+        assert t.global_mean_ == train_global_mean
+        assert result["artist_avg_popularity"].iloc[0] == train_global_mean
+
+        # Artist A's mean should come from training rows only (10, 20) → 15.0
+        X_a = pd.DataFrame({"feat1": [0.0], "artists": ["A"]})
+        res_a = t.transform(X_a)
+        assert res_a["artist_avg_popularity"].iloc[0] == 15.0
+
+    def test_pipeline_cv_runs_without_error(self):
+        """Pipeline with ArtistAvgTransformer + RF runs 5-fold CV without error."""
+        from analyze import ArtistAvgTransformer
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.model_selection import cross_val_score
+        from sklearn.pipeline import Pipeline
+        import pandas as pd
+        import numpy as np
+
+        rng = np.random.RandomState(42)
+        n = 100
+        X = pd.DataFrame({
+            "feat1": rng.randn(n),
+            "feat2": rng.randn(n),
+            "artists": rng.choice(["A", "B", "C", "D"], n),
+        })
+        y = pd.Series(rng.randint(0, 100, n).astype(float))
+
+        pipe = Pipeline([
+            ("artist_avg", ArtistAvgTransformer()),
+            ("rf", RandomForestRegressor(n_estimators=10, random_state=42)),
+        ])
+        scores = cross_val_score(pipe, X, y, cv=5, scoring="r2")
+        assert len(scores) == 5
+        assert all(isinstance(s, float) for s in scores)

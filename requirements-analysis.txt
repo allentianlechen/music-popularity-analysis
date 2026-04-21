@@ -1,0 +1,8 @@
+# Extra dependencies for analysis.ipynb (not needed for web app deployment)
+-r requirements.txt
+xgboost>=2.0,<3.0
+shap>=0.44,<1.0
+statsmodels>=0.14,<1.0
+jupyter>=1.0
+matplotlib>=3.7,<4.0
+seaborn>=0.13,<1.0

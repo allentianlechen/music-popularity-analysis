@@ -1,7 +1,7 @@
 # analysisProject — Progress Tracker
 
 > Consolidated from PROJECT_PLAN.md, IMPROVEMENTS.md, memory, and verified against current code.
-> Last updated: 2026-04-16
+> Last updated: 2026-04-20
 
 ---
 
@@ -673,3 +673,237 @@ External CDN adds 3 round trips before first paint. Self-hosting also closes the
 2. Frontend cleanup (7.10 → 7.13): single PR, delete-only changes for 7.10/7.11 reduce surface area.
 3. Medium/Low items (7.5 → 7.9, 7.14 → 7.15): bundle as time allows.
 4. Re-run `python3 -m pytest test_app.py -v` after each step.
+
+---
+
+## Phase 8 — Data Science Portfolio Upgrade
+
+> Added: 2026-04-17. Transforms the project from a working web app into a portfolio-quality data science project. Fixes data leakage, adds comprehensive EDA notebook, model comparison, SHAP interpretability, residual analysis, and statistical rigor.
+
+### New Dependencies
+
+```
+xgboost>=2.0,<3.0
+shap>=0.44,<1.0
+statsmodels>=0.14,<1.0
+jupyter>=1.0             # dev only, not on Render
+matplotlib>=3.7,<4.0
+seaborn>=0.13,<1.0
+```
+
+---
+
+### Phase 8A — Fix Data Leakage (CRITICAL)
+
+> `artist_avg_popularity` is currently computed from the full dataset (including test rows) before the train/test split at `analyze.py:47-48`. This inflates R² because test-set artist averages include test-set popularity values. The cross-validation at line 73 also uses this leaked feature.
+
+#### Task 8A.1 — Create `ArtistAvgTransformer` (sklearn TransformerMixin)  `DONE`
+
+**File:** `analyze.py`
+
+Create a class that inherits from `BaseEstimator` + `TransformerMixin`:
+- `fit(self, X, y)` — computes mean popularity per artist from **training data only**, stores in `self.artist_means_` dict + `self.global_mean_` fallback.
+- `transform(self, X)` — maps each row's artist to the learned mean (unseen artists get `global_mean_`), appends `artist_avg_popularity` column, drops the `artists` column.
+
+Must be picklable for `model.pkl`.
+
+#### Task 8A.2 — Rewrite train/test split to use the transformer  `DONE`
+
+**File:** `analyze.py`
+
+Replace lines 47-58: split FIRST, then fit transformer on training data only, transform both train and test sets. Update `artist_lookup` and `global_avg_popularity` in `model.pkl` to use training-only means.
+
+#### Task 8A.3 — Fix cross-validation to use a Pipeline  `DONE`
+
+**File:** `analyze.py`
+
+Replace the `cross_val_score` call (lines 73-76) with `sklearn.pipeline.Pipeline([("artist_avg", ArtistAvgTransformer()), ("rf", RandomForestRegressor(...))])`. Pass raw X (with `artists` column, without `artist_avg_popularity`) so the transformer recomputes per fold.
+
+#### Task 8A.4 — Add leakage-fix tests  `DONE`
+
+**File:** `test_app.py`
+
+- `test_artist_avg_transformer_unseen_artist_gets_global_mean`
+- `test_artist_avg_transformer_no_leakage` — verify transform output matches training-set mean, not full-dataset mean.
+- `test_pipeline_cv_runs_without_error`
+
+#### Task 8A.5 — Regenerate model.pkl and verify  `DONE`
+
+Run `python3 analyze.py`. Expect R² to drop (leakage was inflating it). Verify all tests pass and Flask app works.
+
+---
+
+### Phase 8B — Comprehensive EDA Notebook
+
+#### Task 8B.1 — Create `analysis.ipynb` with EDA sections  `DONE`
+
+**File:** `analysis.ipynb` (NEW)
+
+Sections with narrative markdown + code + interpretation:
+1. **Introduction & Dataset Overview** — shape, dtypes, describe(), target definition
+2. **Target Variable Analysis** — popularity distribution, heavy left skew, implications
+3. **Audio Feature Distributions** — 3x3 histogram grid, note skew patterns
+4. **Correlation Analysis** — heatmap (seaborn), strongest correlations, note that NO audio feature correlates strongly with popularity
+5. **Multicollinearity Check (VIF)** — `statsmodels` VIF table, flag VIF > 10 (energy/loudness), discuss tree vs. linear model implications
+6. **Genre Analysis** — genre distribution, top/bottom by median popularity, boxplots
+7. **Artist Analysis** — tracks per artist, artist prolificacy vs popularity, why artist identity dominates
+8. **Outlier Investigation** — tracks with popularity 0, tracks > 90, shared characteristics
+9. **Feature-Popularity Relationships** — scatter/hexbin plots, confirm weak audio→popularity signal
+10. **Hypothesis Tests** — "Are explicit tracks more popular?" (t-test), major vs minor key (t-test), time signature differences (ANOVA)
+
+#### Task 8B.2 — "Why audio-only R² = 0.08" investigation section  `DONE`
+
+**File:** `analysis.ipynb`
+
+The most important analytical section:
+1. State finding: audio features alone explain ~8% of variance
+2. Evidence: audio-only model, predicted vs actual scatter (looks like a cloud)
+3. Investigate: univariate R² per feature (all near zero), show artist feature jumps R² to ~0.50+
+4. Conclusion: popularity is driven by artist fame, marketing, playlists — not audio characteristics
+5. Reference external research on streaming popularity drivers
+
+---
+
+### Phase 8C — Model Comparison & Tuning
+
+#### Task 8C.1 — Baseline model  `DONE`
+
+**File:** `analysis.ipynb`
+
+`DummyRegressor(strategy="mean")` — R² = 0.0 by definition. All real models must beat this. Report R², MAE.
+
+#### Task 8C.2 — Train and compare 4 models  `DONE`
+
+**File:** `analysis.ipynb`
+
+Using leakage-free Pipeline from Phase 8A:
+1. DummyRegressor (baseline)
+2. Ridge Regression (+ StandardScaler in Pipeline)
+3. RandomForestRegressor
+4. XGBRegressor
+
+Report per model: R², MAE, 5-fold CV R² (mean ± std), training time. Present as comparison table + bar chart.
+
+#### Task 8C.3 — Hyperparameter tuning  `DONE`
+
+**File:** `analysis.ipynb`
+
+`RandomizedSearchCV` with `n_iter=50, cv=5, scoring="r2"` on the best model.
+
+RandomForest search space: `n_estimators` [100,200,500], `max_depth` [10,20,30,None], `min_samples_split` [2,5,10], `min_samples_leaf` [1,2,4], `max_features` ["sqrt","log2",0.5].
+
+XGBoost search space: `n_estimators` [100,200,500], `max_depth` [3,5,7,10], `learning_rate` [0.01,0.05,0.1,0.2], `subsample` [0.6,0.8,1.0], `colsample_bytree` [0.6,0.8,1.0].
+
+Report best params, best CV R², improvement over defaults.
+
+#### Task 8C.4 — Update `analyze.py` with best model  `DEFERRED`
+
+**File:** `analyze.py`
+
+Update model class and hyperparameters to match the winner from 8C.3.
+
+---
+
+### Phase 8D — Model Interpretability
+
+#### Task 8D.1 — SHAP analysis  `DONE`
+
+**File:** `analysis.ipynb`
+
+1. `shap.TreeExplainer` on best tree model
+2. SHAP values on 1000-row test sample
+3. Plots: summary plot, bar plot, dependence plots for top 3 features
+4. Markdown interpretation of which features push predictions up/down
+
+#### Task 8D.2 — Partial Dependence Plots  `DONE`
+
+**File:** `analysis.ipynb`
+
+`sklearn.inspection.PartialDependenceDisplay` — 2x2 grid for top 4 audio features. Shows marginal effect of each feature on prediction.
+
+#### Task 8D.3 — Residual Analysis  `DONE`
+
+**File:** `analysis.ipynb`
+
+1. Predicted vs Actual scatter (hexbin for 18k points)
+2. Residual distribution histogram (check normality, centering)
+3. Residuals vs Predicted (check heteroscedasticity)
+4. MAE by popularity range (0-20, 20-40, 40-60, 60-80, 80-100)
+5. MAE by genre (top 10)
+
+---
+
+### Phase 8E — Statistical Rigor
+
+#### Task 8E.1 — Correlation matrix with p-values  `DONE`
+
+**File:** `analysis.ipynb`
+
+`scipy.stats.pearsonr` for each feature pair. Highlight correlations that are statistically significant (p < 0.05) but practically weak (|r| < 0.3). Explain this large-sample-size phenomenon.
+
+#### Task 8E.2 — VIF multicollinearity analysis  `DONE`
+
+**File:** `analysis.ipynb`
+
+`statsmodels.stats.outliers_influence.variance_inflation_factor` table. Flag VIF > 10. Discuss tree-model robustness vs linear-model sensitivity.
+
+#### Task 8E.3 — Confidence intervals + paired t-test  `DONE`
+
+**File:** `analysis.ipynb`
+
+95% CI on 5-fold CV scores: `mean ± t(0.025, df=4) × std / sqrt(5)`. Paired t-test (`scipy.stats.ttest_rel`) between top-2 models' CV scores to test significance of the difference.
+
+---
+
+### Phase 8F — Documentation & Polish
+
+#### Task 8F.1 — Update README with analysis findings  `DONE`
+
+**File:** `README.md`
+
+Add "Analysis & Findings" section: leakage fix, key EDA findings, model comparison results, honest R² numbers, link to `analysis.ipynb`.
+
+#### Task 8F.2 — Notebook narrative cleanup  `DONE`
+
+**File:** `analysis.ipynb`
+
+Ensure every code cell has a preceding markdown explanation and following interpretation. Verify `Restart & Run All` succeeds. Target 15-20 sections, ~80-100 cells.
+
+#### Task 8F.3 — Update projectProgress.md  `DONE`
+
+**File:** `projectProgress.md`
+
+Mark tasks complete as they are finished.
+
+---
+
+### Implementation Order
+
+```
+Phase 8A (leakage fix) ──── MUST be first
+    │
+    v
+Phase 8B (EDA notebook) ───────────┐
+    │                               │
+    v                               v
+Phase 8C (model comparison)     Phase 8E (statistical rigor)
+    │
+    v
+Phase 8D (interpretability)
+    │
+    v
+Phase 8F (documentation)
+```
+
+### Success Criteria
+
+- [ ] `artist_avg_popularity` computed from training data only (no leakage)
+- [ ] Cross-validation uses Pipeline (artist averages recomputed per fold)
+- [ ] `analysis.ipynb` has 12+ sections with narrative markdown
+- [ ] Correlation heatmap + VIF table with interpretation
+- [ ] 4+ models compared (baseline, Ridge, RF, XGBoost)
+- [ ] Hyperparameter tuning with documented best params
+- [ ] SHAP summary + dependence plots
+- [ ] Residual analysis (predicted vs actual, error by range, error by genre)
+- [ ] "Why R² = 0.08" section with evidence and reasoning
+- [ ] All tests pass, notebook runs top-to-bottom without errors

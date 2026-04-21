@@ -10,9 +10,11 @@ import pickle
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import KFold, cross_val_score, train_test_split
+from sklearn.pipeline import Pipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +37,37 @@ FEATURES: list[str] = SLIDER_FEATURES + EXTRA_FEATURES
 TARGET: str = "popularity"
 
 
+# ── ARTIST AVERAGE TRANSFORMER ───────────────────────────────────────────────
+
+class ArtistAvgTransformer(BaseEstimator, TransformerMixin):
+    """Compute artist_avg_popularity from training data only (no leakage).
+
+    fit()  — learns per-artist mean popularity from the training split.
+    transform() — appends artist_avg_popularity column; unseen artists get
+                  the global training mean. Drops the 'artists' column so
+                  only numeric features reach the downstream model.
+    """
+
+    def __init__(self) -> None:
+        self.artist_means_: dict[str, float] = {}
+        self.global_mean_: float = 0.0
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "ArtistAvgTransformer":
+        df = X.copy()
+        df["_target"] = y.values
+        self.artist_means_ = df.groupby("artists")["_target"].mean().round(1).to_dict()
+        self.global_mean_ = round(float(y.mean()), 1)
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        df = X.copy()
+        df["artist_avg_popularity"] = (
+            df["artists"].map(self.artist_means_).fillna(self.global_mean_)
+        )
+        df = df.drop(columns=["artists"])
+        return df
+
+
 def train() -> None:
     # ── 1. LOAD ───────────────────────────────────────────────────────────────
     df = pd.read_csv("cleaned.csv")
@@ -43,42 +76,54 @@ def train() -> None:
     if df["explicit"].dtype == bool:
         df["explicit"] = df["explicit"].astype(int)
 
-    # ── 2. ARTIST AVERAGE POPULARITY ─────────────────────────────────────────
-    df["artist_avg_popularity"] = (
-        df.groupby("artists")["popularity"].transform("mean").round(1)
-    )
-    all_features = FEATURES + ["artist_avg_popularity"]
-
-    X = df[all_features]
+    # ── 2. PREPARE X AND y ───────────────────────────────────────────────────
+    # Include 'artists' column so the transformer can compute artist averages.
+    # The transformer drops 'artists' after adding artist_avg_popularity.
+    raw_features = FEATURES + ["artists"]
+    X_raw = df[raw_features]
     y = df[TARGET]
 
-    # ── 3. TRAIN / TEST SPLIT ─────────────────────────────────────────────────
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+    # ── 3. TRAIN / TEST SPLIT (before computing artist averages) ─────────────
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        X_raw, y, test_size=0.2, random_state=42
     )
-    logger.info("Training on %d tracks, testing on %d tracks", len(X_train), len(X_test))
+    logger.info("Training on %d tracks, testing on %d tracks",
+                len(X_train_raw), len(X_test_raw))
 
-    # ── 4. TRAIN MODEL ────────────────────────────────────────────────────────
+    # ── 4. FIT TRANSFORMER ON TRAINING DATA ONLY ─────────────────────────────
+    artist_transformer = ArtistAvgTransformer()
+    artist_transformer.fit(X_train_raw, y_train)
+    X_train = artist_transformer.transform(X_train_raw)
+    X_test = artist_transformer.transform(X_test_raw)
+
+    all_features = list(X_train.columns)
+    logger.info("Features after transform: %s", all_features)
+    logger.info("Unseen artists in test set get global mean: %.1f",
+                artist_transformer.global_mean_)
+
+    # ── 5. TRAIN MODEL ────────────────────────────────────────────────────────
     model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
     logger.info("Regressor trained")
 
-    # ── 5. EVALUATE ───────────────────────────────────────────────────────────
+    # ── 6. EVALUATE ───────────────────────────────────────────────────────────
     y_pred = model.predict(X_test)
     r2     = r2_score(y_test, y_pred)
     mae    = mean_absolute_error(y_test, y_pred)
     logger.info("R² = %.3f  |  MAE = %.1f popularity points", r2, mae)
 
-    # ── 5b. CROSS-VALIDATION ─────────────────────────────────────────────────
-    cv_scores = cross_val_score(
-        RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
-        X, y, cv=5, scoring="r2"
-    )
+    # ── 6b. CROSS-VALIDATION (Pipeline recomputes artist avg per fold) ───────
+    cv_pipeline = Pipeline([
+        ("artist_avg", ArtistAvgTransformer()),
+        ("rf", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)),
+    ])
+    cv = KFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(cv_pipeline, X_raw, y, cv=cv, scoring="r2")
     cv_r2_mean = float(cv_scores.mean())
     cv_r2_std  = float(cv_scores.std())
-    logger.info("CV R²: %.3f ± %.3f", cv_r2_mean, cv_r2_std)
+    logger.info("CV R² (leakage-free pipeline): %.3f ± %.3f", cv_r2_mean, cv_r2_std)
 
-    # ── 5c. AUDIO-ONLY R² ─────────────────────────────────────────────────────
+    # ── 6c. AUDIO-ONLY R² (no artist feature) ────────────────────────────────
     X_base = df[SLIDER_FEATURES + EXTRA_FEATURES]
     X_tr_base, X_te_base, y_tr_base, y_te_base = train_test_split(
         X_base, y, test_size=0.2, random_state=42
@@ -92,13 +137,14 @@ def train() -> None:
         m_base.feature_importances_, index=SLIDER_FEATURES + EXTRA_FEATURES
     )
 
-    # ── 5c. SCORE RANGE ───────────────────────────────────────────────────────
-    all_preds = model.predict(X)
+    # ── 6d. SCORE RANGE ──────────────────────────────────────────────────────
+    X_all_transformed = artist_transformer.transform(X_raw)
+    all_preds = model.predict(X_all_transformed)
     pred_min  = float(np.percentile(all_preds, 5))
     pred_max  = float(np.percentile(all_preds, 95))
     logger.info("Prediction range (p5–p95): %.1f → %.1f", pred_min, pred_max)
 
-    # ── 5d. RECOMMENDED VALUES ────────────────────────────────────────────────
+    # ── 6e. RECOMMENDED VALUES ───────────────────────────────────────────────
     all_preds_base = m_base.predict(X_base)
     top_mask_base  = all_preds_base >= np.percentile(all_preds_base, 99)
     recommended = {
@@ -107,21 +153,24 @@ def train() -> None:
     }
     logger.info("Recommended audio profile (top-1%% audio-only model): %s", recommended)
 
-    # ── 6. FEATURE IMPORTANCE ─────────────────────────────────────────────────
+    # ── 7. FEATURE IMPORTANCE ────────────────────────────────────────────────
     importance = pd.Series(model.feature_importances_, index=all_features)
     importance = importance.sort_values(ascending=False)
     for feat, score in importance.items():
         bar = "█" * int(score * 100)
         logger.info("  %-25s %.3f  %s", feat, score, bar)
 
-    # ── 7. GENRE MEANS ────────────────────────────────────────────────────────
+    # ── 8. GENRE MEANS ───────────────────────────────────────────────────────
+    # Use base features (no artist_avg_popularity) since that column
+    # doesn't exist in the original dataframe — it's computed per-split.
+    genre_features = SLIDER_FEATURES + EXTRA_FEATURES
     genre_means = (
-        df.groupby("track_genre")[all_features].mean()
+        df.groupby("track_genre")[genre_features].mean()
         .round(3)
         .to_dict(orient="index")
     )
 
-    # ── 8. SAVE MODEL + METADATA ──────────────────────────────────────────────
+    # ── 9. SAVE MODEL + METADATA ─────────────────────────────────────────────
     payload = {
         "model":           model,
         "features":        all_features,
@@ -133,19 +182,27 @@ def train() -> None:
         "pred_max":        round(pred_max, 3),
         "recommended":     recommended,
         "ranges": {
-            feat: {
-                "min":  round(float(df[feat].min()), 3),
-                "max":  round(float(df[feat].max()), 3),
-                "mean": round(float(df[feat].mean()), 3),
-            }
-            for feat in all_features
+            **{
+                feat: {
+                    "min":  round(float(df[feat].min()), 3),
+                    "max":  round(float(df[feat].max()), 3),
+                    "mean": round(float(df[feat].mean()), 3),
+                }
+                for feat in FEATURES  # base features from the original df
+            },
+            "artist_avg_popularity": {
+                "min":  round(float(X_train["artist_avg_popularity"].min()), 3),
+                "max":  round(float(X_train["artist_avg_popularity"].max()), 3),
+                "mean": round(float(X_train["artist_avg_popularity"].mean()), 3),
+            },
         },
         "cv_r2_mean":             round(cv_r2_mean, 3),
         "cv_r2_std":              round(cv_r2_std,  3),
         "r2_base":                round(r2_base, 3),
         "audio_importance":       audio_importance.to_dict(),
-        "artist_lookup":          df.groupby("artists")["popularity"].mean().round(1).to_dict(),
-        "global_avg_popularity":  round(float(df["popularity"].mean()), 1),
+        # Training-data-only artist lookup (no leakage)
+        "artist_lookup":          artist_transformer.artist_means_,
+        "global_avg_popularity":  artist_transformer.global_mean_,
         "genre_means":            genre_means,
     }
 
