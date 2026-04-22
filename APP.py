@@ -24,25 +24,39 @@ LIBROSA_AVAILABLE: bool = False
 librosa: Any = None
 np: Any = None
 median_filter: Any = None
+soundfile: Any = None
+soxr: Any = None
 
 
 def _ensure_librosa() -> bool:
     """Import librosa on first use. Returns True if available."""
-    global LIBROSA_AVAILABLE, librosa, np, median_filter  # noqa: PLW0603
+    global LIBROSA_AVAILABLE, librosa, np, median_filter, soundfile, soxr  # noqa: PLW0603
     if LIBROSA_AVAILABLE:
         return True
     try:
+        # Disable numba JIT at runtime to avoid OOM from compilation on 512 MB
+        os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
         import librosa as _librosa
         import numpy as _np
+        import soundfile as _sf
+        import soxr as _soxr
         from scipy.ndimage import median_filter as _mf
         librosa = _librosa
         np = _np
         median_filter = _mf
+        soundfile = _sf
+        soxr = _soxr
         LIBROSA_AVAILABLE = True
         logger.info("librosa loaded on first audio request")
         return True
     except ImportError:
         return False
+
+
+# Target sample rate for audio analysis
+_TARGET_SR: int = 22050
+# Max audio duration in seconds (30s is enough for feature extraction)
+_MAX_DURATION_SEC: float = 30.0
 
 
 # ── LOGGING ───────────────────────────────────────────────────────────────────
@@ -477,7 +491,17 @@ def _extract_audio_features(file_path: str) -> dict[str, float]:
 
     All 9 features computed entirely with librosa — no external ML packages required.
     """
-    y, sr = librosa.load(file_path, duration=90, mono=True)
+    # Load with soundfile + soxr to avoid numba @guvectorize in librosa.load()
+    # which OOMs on Render's 512 MB free tier during JIT compilation.
+    data, native_sr = soundfile.read(file_path, dtype="float32")
+    if data.ndim > 1:
+        data = data.mean(axis=1)                    # stereo → mono
+    max_samples = int(_MAX_DURATION_SEC * native_sr)
+    if len(data) > max_samples:
+        data = data[:max_samples]                    # trim to 30s
+    if native_sr != _TARGET_SR:
+        data = soxr.resample(data, native_sr, _TARGET_SR)
+    y, sr = data, _TARGET_SR
 
     stft             = np.abs(librosa.stft(y))
     freqs            = librosa.fft_frequencies(sr=sr)
