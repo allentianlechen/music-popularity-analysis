@@ -210,5 +210,20 @@ def train() -> None:
     logger.info("Saved model.pkl — ready to run: python3 APP.py")
 
 
+def _prewarm_numba() -> None:
+    """Pre-compile numba guvectorize functions used by librosa.
+
+    This runs during the build step so that compiled artifacts are cached
+    in the deployed image. Without this, the first runtime call to
+    librosa.load() triggers JIT compilation that OOMs on 512 MB instances.
+    """
+    try:
+        import librosa.core.audio  # noqa: F401 — triggers @guvectorize compilation
+        logger.info("numba pre-compiled for librosa")
+    except Exception:
+        logger.warning("numba pre-compilation skipped (librosa not installed)")
+
+
 if __name__ == "__main__":
     train()
+    _prewarm_numba()
