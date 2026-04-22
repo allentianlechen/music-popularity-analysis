@@ -11,20 +11,38 @@ import hashlib
 import hmac
 import logging
 import os
-import pickle
 import sys
 import tempfile
 from typing import Any
 
 from flask import Flask, jsonify, request, send_from_directory
+from joblib import load as joblib_load
 
-try:
-    import librosa
-    import numpy as np
-    from scipy.ndimage import median_filter
-    LIBROSA_AVAILABLE = True
-except ImportError:
-    LIBROSA_AVAILABLE = False
+# Lazy-load librosa (and numpy/scipy) only when audio analysis is requested.
+# This keeps startup RAM under Render's 512 MB free-tier limit.
+LIBROSA_AVAILABLE: bool = False
+librosa: Any = None
+np: Any = None
+median_filter: Any = None
+
+
+def _ensure_librosa() -> bool:
+    """Import librosa on first use. Returns True if available."""
+    global LIBROSA_AVAILABLE, librosa, np, median_filter  # noqa: PLW0603
+    if LIBROSA_AVAILABLE:
+        return True
+    try:
+        import librosa as _librosa
+        import numpy as _np
+        from scipy.ndimage import median_filter as _mf
+        librosa = _librosa
+        np = _np
+        median_filter = _mf
+        LIBROSA_AVAILABLE = True
+        logger.info("librosa loaded on first audio request")
+        return True
+    except ImportError:
+        return False
 
 
 # ── LOGGING ───────────────────────────────────────────────────────────────────
@@ -70,17 +88,17 @@ app.config["MAX_CONTENT_LENGTH"] = UPLOAD_MAX_BYTES  # 413 before route handler
 
 # ── LOAD MODEL ────────────────────────────────────────────────────────────────
 def _load_model(path: str = "model.pkl") -> dict[str, Any]:
-    """Load model.pkl, optionally verifying SHA-256 when MODEL_PKL_SHA256 is set."""
-    with open(path, "rb") as f:
-        raw = f.read()
+    """Load model.pkl via joblib, optionally verifying SHA-256."""
     expected_hash = os.environ.get("MODEL_PKL_SHA256")
     if expected_hash:
+        with open(path, "rb") as f:
+            raw = f.read()
         actual = hashlib.sha256(raw).hexdigest()
         if not hmac.compare_digest(actual, expected_hash):
             logger.error("model.pkl SHA-256 mismatch — refusing to load")
             sys.exit(1)
         logger.info("model.pkl integrity verified")
-    return pickle.loads(raw)  # noqa: S301 — local model file, hash-checked when env var set
+    return joblib_load(path)
 
 
 try:
@@ -499,8 +517,8 @@ def analyze_audio() -> tuple[Any, int]:
                      f"Allowed: {', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}"
         }), 415
 
-    # Check librosa availability after validation (so ext/size checks always work)
-    if not LIBROSA_AVAILABLE:
+    # Lazy-load librosa on first audio request (keeps startup RAM low)
+    if not _ensure_librosa():
         return jsonify({"error": "librosa is not installed. Run: pip install librosa"}), 503
 
     # Belt-and-suspenders size check (Flask MAX_CONTENT_LENGTH is the first gate)

@@ -6,10 +6,9 @@ Run: python3 analyze.py
 """
 
 import logging
-import pickle
-
 import numpy as np
 import pandas as pd
+from joblib import dump as joblib_dump
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -102,7 +101,7 @@ def train() -> None:
                 artist_transformer.global_mean_)
 
     # ── 5. TRAIN MODEL ────────────────────────────────────────────────────────
-    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    model = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
     logger.info("Regressor trained")
 
@@ -115,7 +114,7 @@ def train() -> None:
     # ── 6b. CROSS-VALIDATION (Pipeline recomputes artist avg per fold) ───────
     cv_pipeline = Pipeline([
         ("artist_avg", ArtistAvgTransformer()),
-        ("rf", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)),
+        ("rf", RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)),
     ])
     cv = KFold(n_splits=5, shuffle=True, random_state=42)
     cv_scores = cross_val_score(cv_pipeline, X_raw, y, cv=cv, scoring="r2")
@@ -128,7 +127,7 @@ def train() -> None:
     X_tr_base, X_te_base, y_tr_base, y_te_base = train_test_split(
         X_base, y, test_size=0.2, random_state=42
     )
-    m_base = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    m_base = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
     m_base.fit(X_tr_base, y_tr_base)
     r2_base = r2_score(y_te_base, m_base.predict(X_te_base))
     logger.info("Audio-only R² (no artist): %.3f  |  Artist fame contribution: %.3f",
@@ -206,8 +205,7 @@ def train() -> None:
         "genre_means":            genre_means,
     }
 
-    with open("model.pkl", "wb") as f:
-        pickle.dump(payload, f)
+    joblib_dump(payload, "model.pkl", compress=3)
 
     logger.info("Saved model.pkl — ready to run: python3 APP.py")
 
