@@ -2,7 +2,7 @@
 
 A web app that predicts how popular a song could be on Spotify based on its audio characteristics. Upload any audio file and get an instant popularity score (0-100) with a breakdown of how each audio feature contributes.
 
-**Live demo:** https://music-popularity-predictor.onrender.com
+**Live demo:** https://music-popularity-analysis.onrender.com
 
 ## How It Works
 

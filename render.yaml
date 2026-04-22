@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: music-popularity-predictor
+    name: music-popularity-analysis
     runtime: python
     buildCommand: pip install -r requirements.txt && python3 analyze.py
     startCommand: gunicorn APP:app --bind 0.0.0.0:$PORT --timeout 120

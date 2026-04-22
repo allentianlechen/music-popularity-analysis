@@ -1,7 +1,7 @@
 # analysisProject — Progress Tracker
 
 > Consolidated from PROJECT_PLAN.md, IMPROVEMENTS.md, memory, and verified against current code.
-> Last updated: 2026-04-20
+> Last updated: 2026-04-21
 
 ---
 
@@ -897,13 +897,73 @@ Phase 8F (documentation)
 
 ### Success Criteria
 
-- [ ] `artist_avg_popularity` computed from training data only (no leakage)
-- [ ] Cross-validation uses Pipeline (artist averages recomputed per fold)
-- [ ] `analysis.ipynb` has 12+ sections with narrative markdown
-- [ ] Correlation heatmap + VIF table with interpretation
-- [ ] 4+ models compared (baseline, Ridge, RF, XGBoost)
-- [ ] Hyperparameter tuning with documented best params
-- [ ] SHAP summary + dependence plots
-- [ ] Residual analysis (predicted vs actual, error by range, error by genre)
-- [ ] "Why R² = 0.08" section with evidence and reasoning
-- [ ] All tests pass, notebook runs top-to-bottom without errors
+- [x] `artist_avg_popularity` computed from training data only (no leakage)
+- [x] Cross-validation uses Pipeline (artist averages recomputed per fold)
+- [x] `analysis.ipynb` has 12+ sections with narrative markdown (19 sections)
+- [x] Correlation heatmap + VIF table with interpretation
+- [x] 4+ models compared (baseline, Ridge, RF, XGBoost)
+- [x] Hyperparameter tuning with documented best params
+- [x] SHAP summary + dependence plots
+- [x] Residual analysis (predicted vs actual, error by range, error by genre)
+- [x] "Why R² = 0.08" section with evidence and reasoning
+- [x] All tests pass (38/38), notebook runs top-to-bottom without errors
+
+### Phase 8 Completion Notes (2026-04-21)
+
+**Committed:** `078173a` — pushed to `main` on GitHub.
+
+**Key metrics after leakage fix:**
+- R² = 0.446 (full model), CV R² = 0.439 +/- 0.008
+- Audio-only R² = 0.257, MAE = 9.7 pts
+- artist_avg_popularity dominates at 79.7% importance
+
+**Bugs fixed during implementation:**
+- `cross_val_score` with default (non-shuffled) KFold on ordered data produced R² = -29; fixed with `KFold(shuffle=True)`
+- `genre_means` and `ranges` dict referenced `artist_avg_popularity` column not in original df; fixed to use base features + training-only stats
+- RandomizedSearchCV `n_iter=50` timed out at 600s; reduced to `n_iter=20` with max `n_estimators=200`
+
+**Files added/changed:**
+- `analyze.py` — ArtistAvgTransformer, Pipeline CV, shuffled KFold, fixed genre_means/ranges
+- `test_app.py` — 3 new leakage tests (38 total)
+- `analysis.ipynb` — 19-section EDA notebook (executed, outputs preserved)
+- `requirements-analysis.txt` — notebook-only dependencies
+- `README.md` — updated metrics, added Analysis & Findings section
+- `.gitignore` — added `eda_*.png`
+
+**Deployment:** Render service needs redeployment — previous service was replaced by another project. Render MCP server configured locally for future deploys.
+
+---
+
+## Phase 9 — Render Deployment Fix
+
+> Added: 2026-04-21. The Render-hosted site at `music-popularity-predictor.onrender.com` is not serving our app. Instead it returns a JSON response from a different FastAPI project (`/predict`, `/retrain`, `/docs`, `/redoc`). The service was either replaced or misconfigured.
+
+### Task 9.1 — Diagnose Render Build Failure  `DONE`
+
+**Findings (2026-04-22):**
+
+Service `music-popularity-analysis` (`srv-d7ji7bd7vvec738v8630`) exists and is connected to the correct repo (`allentianlechen/music-popularity-analysis`), branch `main`, with auto-deploy enabled.
+
+Build failed at `python3 analyze.py` step with:
+```
+ModuleNotFoundError: No module named 'pandas'
+```
+
+**Root causes identified:**
+1. `pandas` was missing from `requirements.txt` — `analyze.py` imports it but it was never listed
+2. Render used Python 3.14.3 (its current default) instead of 3.11.9 — the `PYTHON_VERSION` env var was in `render.yaml` but the yaml wasn't linked to the service (service name mismatch: yaml said `music-popularity-predictor`, service is `music-popularity-analysis`)
+3. No `.python-version` file existed as a fallback
+
+The numpy `<2.0` constraint forced building from source on Python 3.14 (no prebuilt wheel for cp314), causing the metadata step to take 4+ minutes before eventually succeeding — but then `analyze.py` crashed on missing pandas.
+
+### Task 9.2 — Fix and Redeploy  `DONE`
+
+**Fixes applied:**
+- Added `pandas>=2.0,<3.0` to `requirements.txt`
+- Created `.python-version` file with `3.11.9`
+- Fixed `render.yaml` service name from `music-popularity-predictor` → `music-popularity-analysis`
+- Set `PYTHON_VERSION=3.11.9` env var directly on Render service via MCP
+
+### Task 9.3 — Update README with new URL  `DONE`
+
+Updated `README.md` live demo link from `music-popularity-predictor.onrender.com` → `music-popularity-analysis.onrender.com`.
