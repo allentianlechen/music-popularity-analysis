@@ -185,11 +185,16 @@ def _tempo_plp_check(
     tempo_val: float, tempo_bt: float, half_bt: float,
     onset_env: "np.ndarray", sr: int,
 ) -> float:
-    """If PLP period agrees with half-tempo but beat_track does not, prefer half-tempo."""
+    """If onset-envelope periodicity agrees with half-tempo but tempo does not, prefer half.
+
+    Uses autocorrelation of onset envelope instead of librosa.beat.plp
+    to avoid numba @guvectorize which OOMs on Render 512 MB.
+    """
     hop        = 512
     fps        = sr / hop
-    pulse      = librosa.beat.plp(onset_envelope=onset_env, sr=sr)
-    ac         = librosa.autocorrelate(pulse, max_size=len(pulse) // 2)
+    ac         = librosa.autocorrelate(onset_env, max_size=len(onset_env) // 2)
+    if len(ac) < 2:
+        return tempo_val
     plp_period = float(np.argmax(ac[1:]) + 1)
     plp_bpm    = 60.0 * fps / (plp_period + 1e-6)
     while plp_bpm > TEMPO_MAX_BPM:
@@ -203,17 +208,50 @@ def _tempo_plp_check(
     return tempo_val
 
 
+def _estimate_beat_frames(
+    onset_env: "np.ndarray", sr: int, tempo_bpm: float,
+) -> "np.ndarray":
+    """Estimate beat-aligned frames from onset envelope and tempo.
+
+    librosa.beat.beat_track uses numba @guvectorize which OOMs on Render's
+    512 MB free tier.  This replacement uses onset peaks snapped to the
+    estimated beat grid — good enough for IBI consistency and onset-strength
+    scoring in _compute_danceability.
+    """
+    hop = 512
+    beat_period_frames = (60.0 * sr) / (tempo_bpm * hop + 1e-9)
+    if beat_period_frames < 1:
+        return np.array([], dtype=int)
+    # Generate a regular grid at the estimated tempo
+    n_frames = len(onset_env)
+    grid = np.arange(0, n_frames, beat_period_frames).astype(int)
+    grid = grid[grid < n_frames]
+    # Snap each grid point to the nearest onset peak within ±half a beat
+    half = max(1, int(beat_period_frames * 0.4))
+    snapped: list[int] = []
+    for g in grid:
+        lo = max(0, g - half)
+        hi = min(n_frames, g + half + 1)
+        snapped.append(int(lo + np.argmax(onset_env[lo:hi])))
+    return np.unique(np.array(snapped, dtype=int))
+
+
 def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
     """Return (tempo_bpm, beat_frames). Multi-stage disambiguation:
     1. Windowed tempogram score (±8 % BPM window) via _score_tempo_bpm.
     2. Half-tempo preferred at ≥65 % relative support, gated on ≥8 beat frames.
     3. Top-3 tempogram peaks as tie-breaker via _tempo_top3_tiebreaker.
     4. PLP cross-check via _tempo_plp_check.
-    """
-    tempo_bt, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-    tempo_bt = float(np.atleast_1d(tempo_bt)[0])
 
+    Uses librosa.feature.tempo + onset envelope instead of librosa.beat.beat_track
+    to avoid numba @guvectorize which OOMs on Render 512 MB.
+    """
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    tempo_bt = float(np.atleast_1d(
+        librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=TEMPO_START_BPM)
+    )[0])
+    beat_frames = _estimate_beat_frames(onset_env, sr, tempo_bt)
+
     tg        = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr)
     tg_freqs  = librosa.tempo_frequencies(tg.shape[0], sr=sr)
     mean_tg   = np.mean(np.abs(tg), axis=1)
@@ -228,9 +266,8 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
                 >= _score_tempo_bpm(tempo_bt, tg_freqs, mean_tg) * 0.65):
         tempo_val = half_bt
     elif len(beat_frames) < 4:
-        tempo_val = float(np.atleast_1d(
-            librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=TEMPO_START_BPM)
-        )[0])
+        # tempo_bt already comes from librosa.feature.tempo — use it directly
+        tempo_val = tempo_bt
     else:
         tempo_val = tempo_bt
 
@@ -245,6 +282,10 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
         tempo_val /= 2.0
     while tempo_val < TEMPO_MIN_BPM:
         tempo_val *= 2.0
+
+    # Re-estimate beat frames if tempo changed after disambiguation
+    if abs(tempo_val - tempo_bt) / (tempo_bt + 1e-6) > 0.05:
+        beat_frames = _estimate_beat_frames(onset_env, sr, tempo_val)
 
     return tempo_val, beat_frames
 
