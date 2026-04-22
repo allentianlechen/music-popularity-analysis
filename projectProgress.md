@@ -958,12 +958,29 @@ The numpy `<2.0` constraint forced building from source on Python 3.14 (no prebu
 
 ### Task 9.2 — Fix and Redeploy  `DONE`
 
-**Fixes applied:**
-- Added `pandas>=2.0,<3.0` to `requirements.txt`
-- Created `.python-version` file with `3.11.9`
-- Fixed `render.yaml` service name from `music-popularity-predictor` → `music-popularity-analysis`
-- Set `PYTHON_VERSION=3.11.9` env var directly on Render service via MCP
+**Fixes applied (3 deploy attempts):**
+
+1. **Commit `750824a`** — Added `pandas>=2.0,<3.0` to `requirements.txt`, created `.python-version` with `3.11.9`, fixed `render.yaml` service name, set `PYTHON_VERSION=3.11.9` env var on Render. Build succeeded but deploy failed: gunicorn couldn't bind a port within 5 min due to numba JIT compilation during `import librosa`.
+
+2. **Env var `NUMBA_DISABLE_JIT=1`** — Disabled numba JIT to speed up librosa import. Build succeeded but deploy OOM'd: `model.pkl` was 388 MB and loading it + Python + Flask exceeded the 512 MB free-tier RAM limit.
+
+3. **Commit `b1e3bfe`** — Switched from `pickle` to `joblib` with `compress=3` (model.pkl: 388 MB → 38 MB), reduced `n_estimators` from 100 → 50 (R² 0.446 → 0.445), and lazy-loaded librosa (only imports on `/analyze-audio` request). **Deploy succeeded — site is live.**
+
+**Final Render env vars:** `PYTHON_VERSION=3.11.9`, `NUMBA_DISABLE_JIT=1`
 
 ### Task 9.3 — Update README with new URL  `DONE`
 
 Updated `README.md` live demo link from `music-popularity-predictor.onrender.com` → `music-popularity-analysis.onrender.com`.
+
+### Phase 9 Completion Notes (2026-04-22)
+
+**Live URL:** https://music-popularity-analysis.onrender.com
+**Deploy:** `dep-d7k7v7u7r5hc73ep77qg` — status `live`, commit `b1e3bfe`
+
+**Key changes for deployment:**
+- `requirements.txt` — added `pandas>=2.0,<3.0`
+- `.python-version` — pins Python 3.11.9
+- `render.yaml` — service name fixed to `music-popularity-analysis`
+- `analyze.py` — joblib compression, 50 trees instead of 100
+- `APP.py` — lazy librosa import, joblib model loading
+- `model.pkl` — 38 MB (compressed) vs 388 MB (raw pickle)
