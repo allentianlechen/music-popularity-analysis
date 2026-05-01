@@ -1,7 +1,7 @@
 # analysisProject — Progress Tracker
 
 > Consolidated from PROJECT_PLAN.md, IMPROVEMENTS.md, memory, and verified against current code.
-> Last updated: 2026-04-30
+> Last updated: 2026-05-01
 
 ---
 
@@ -10,6 +10,8 @@
 Web app that estimates an audio-based popularity signal from uploaded audio features. No Spotify API needed at runtime. Dataset: Kaggle "Spotify Tracks Dataset" (~90k tracks, ~114 genres) with pre-computed audio features + popularity scores.
 
 Important current framing: the full model includes `artist_avg_popularity`, but upload users do not provide artist, playlist, release, or marketing context. The upload UI therefore presents an **audio-only appeal estimate**, not a direct Spotify popularity forecast.
+
+Current upload feature policy: the website only displays and scores the five locally defensible features: `danceability`, `energy`, `loudness`, `acousticness`, and `tempo`. `speechiness`, `instrumentalness`, `liveness`, and `valence` were removed from the upload flow because the local librosa heuristics produced false confidence on instrumental/non-live tracks.
 
 **Stack:** Python, Flask, scikit-learn (RandomForest), librosa, HTML/CSS/JS (dark theme).
 
@@ -53,7 +55,7 @@ Important current framing: the full model includes `artist_avg_popularity`, but 
 Extended `FEATURES` in `analyze.py` with 5 non-slider columns:
 `key`, `mode`, `time_signature`, `explicit`, `duration_min`
 
-These do not get UI sliders — sent as dataset mean values on each `/predict` call. `SLIDER_FEATURES` (9 features) and `EXTRA_FEATURES` (5 features) are maintained separately in `config.py`.
+These are used by the contextual analysis model, but are not sent by the upload UI. The upload model has its own five-feature list: `danceability`, `energy`, `loudness`, `acousticness`, `tempo`.
 
 ### Task 1.2 — 5-fold cross-validation `DONE`
 `analyze.py` runs `cross_val_score` (5-fold, R²) after the train/test evaluation. Results logged and saved to `model.pkl` as `cv_r2_mean` / `cv_r2_std`. Accuracy card in `index.html` shows "Cross-validation R²: X.XXX ± X.XXX (5-fold)" when the fields are present in `/meta`.
@@ -84,7 +86,7 @@ Original plan called for a RandomForest classifier saved in `model.pkl` and retu
 
 ### Task 3.1 — Show model accuracy honestly `DONE`
 Accuracy card in `index.html` shows:
-- Full model R² and audio-only R² (from `meta.r2_base`)
+- Context model R² and upload audio-only R² (from `meta.context_metrics` / `meta.upload_metrics`)
 - Plain-English note that the full model includes historical artist popularity unavailable in the upload flow
 - Upload score is described as the relevant audio-only estimate
 - Mean prediction error ±MAE pts
@@ -99,7 +101,7 @@ Accuracy card in `index.html` shows:
 
 ### Task 3.3 — Feature importance bar chart `DONE`
 - Horizontal bar chart rendered from `meta.audio_importance` in the result panel
-- Bars renormalized to audio-only features (excluding `artist_avg_popularity`) so values are readable (~5–25% per feature)
+- Bars renormalized to the retained upload audio features (excluding `artist_avg_popularity`) so values are readable
 - Title: "Audio-Only Feature Importance"
 - Bars are 6px tall with inline percentage label
 
@@ -153,18 +155,18 @@ Accuracy card in `index.html` shows:
 
 ## Audio Analysis Algorithm Improvements (2026-04-13)
 
-All computed in `APP.py` via `librosa`; extracted features match Spotify's schema (0–1 for most, dB for loudness, BPM for tempo).
+Historical note: these heuristic functions exist in `APP.py`, but the upload API no longer exposes all of them. The upload-facing extraction now returns only the five features that can be defended locally: `danceability`, `energy`, `loudness`, `acousticness`, and `tempo`.
 
 | Feature | Fix Applied | Status |
 |---------|-------------|--------|
 | **Tempo** | Replaced `beat_track` with tempogram autocorrelation; half/double-tempo disambiguation via tempogram support score; BPM folded into [60, 165] | DONE |
-| **Speechiness** | Recalibrated divisor 3.0 → 9.0; added ZCR as secondary signal; combined MFCC delta + delta² + vocal-band flux + ZCR | DONE |
-| **Instrumentalness** | Fixed mathematical bug (`mean(v_i/sum) ≡ 1/n`); switched to absolute MFCC variance of coefficients 1–4 + vibrato detection (4.5–7 Hz autocorrelation of spectral centroid, with rhythmic subdivisions excluded) | DONE |
-| **Liveness** | Replaced reverb-decay approach (failed on sustained synth notes) with quiet-section noise floor (DR ratio) + mid-band spectral contrast variation | DONE |
+| **Speechiness** | Local heuristic proved unreliable without speech recognition | REMOVED FROM UPLOAD |
+| **Instrumentalness** | Local heuristic proved unreliable without vocal/source separation | REMOVED FROM UPLOAD |
+| **Liveness** | Local heuristic proved unreliable without crowd/reverb/live-room recognition | REMOVED FROM UPLOAD |
 | **Energy** | Active-frame loudness + HF energy ratio (>2 kHz) + spectral centroid — all shared STFT | DONE |
 | **Acousticness** | HPSS harmonic ratio + harmonic spectral flatness | DONE |
 | **Danceability** | IBI consistency (beat inter-onset variation) + PLP pulse strength | DONE |
-| **Valence** | Krumhansl-Kessler key mode + tempo + spectral tilt + harmonic-to-total energy ratio | DONE |
+| **Valence** | Local heuristic proved unreliable without a real mood model and richer musical context | REMOVED FROM UPLOAD |
 | **Loudness** | Power-weighted active-frame mean; silence gaps below −50 dB excluded | DONE |
 
 ---
@@ -173,7 +175,7 @@ All computed in `APP.py` via `librosa`; extracted features match Spotify's schem
 
 - **Single-column layout** — `.sliders-panel` hidden; result panel revealed only after upload
 - **Upload-only flow** — `uploadedFeatures` state; no startup `predict()` call; genre change guarded
-- **Optimal Audio Profile card** — permanent card showing recommended vs. dataset mean for all 9 features
+- **Optimal Audio Profile card** — permanent card showing recommended vs. dataset mean for the retained upload features
 - **Collapsible sliders** — default collapsed; toggle button with chevron
 - **Insights panel** — edge-to-edge, 20px feature names, larger badges, 7px bars, 14px values
 - **Educational section** — model info, accuracy card, importance chart wrapped in "About the Model & Dataset"
@@ -186,7 +188,7 @@ All computed in `APP.py` via `librosa`; extracted features match Spotify's schem
 
 ## Remaining Work
 
-### Current Unimplemented / Deferred Items `UPDATED 2026-04-30`
+### Current Unimplemented / Deferred Items `UPDATED 2026-05-01`
 
 1. **Remote Render audio upload verification** — local generated WAV integration test passes, but the deployed Render audio upload path still needs a real browser/upload check after the latest changes.
 2. **Optional ML audio models** — Whisper/Demucs/CLAP were planned in Phase 6 but are not implemented in the current app. They remain deferred/superseded because runtime weight and CPU/RAM cost do not fit the Render free-tier goal.
@@ -305,7 +307,7 @@ Minor accuracy improvements identified during the review:
 After Tasks 5.1–5.4:
 
 1. Run `python3 analyze.py` to regenerate `model.pkl` with `audio_importance` included.
-2. Verify the logged output shows `audio_importance` keys for all 14 audio features (9 slider + 5 extra).
+2. Verify the logged output shows `audio_importance` keys for the upload model features.
 3. Spot-check tempo on 3–4 files: one slow (≤80 BPM), one fast (≥140 BPM), one mid-range.
 4. Confirm `/meta` response includes `audio_importance`.
 5. Confirm `/predict` with no artist uses renormalized audio importance; with a known artist uses full importance.
@@ -315,7 +317,7 @@ After Tasks 5.1–5.4:
 
 ## Phase 6 — ML-based Feature Replacement (Speechiness, Instrumentalness) `SUPERSEDED`
 
-> Added: 2026-04-15. Later superseded by Render free-tier constraints and the upload-first product direction. Current code does **not** include Whisper, Demucs, torch, or CLAP; all 9 audio features are computed with the librosa/soundfile/soxr path in `APP.py`.
+> Added: 2026-04-15. Later superseded by Render free-tier constraints and the upload-first product direction. Current code does **not** include Whisper, Demucs, torch, or CLAP. The upload API returns only five defensible local features.
 
 ### Design Decision: CLAP Dropped
 
@@ -325,12 +327,12 @@ CLAP would have added ~900 MB of model weights for acousticness/liveness/valence
 
 | Feature | Implementation | Package required |
 |---------|---------------|-----------------|
-| speechiness | Whisper tiny — word rate from transcription | `openai-whisper` |
-| instrumentalness | Demucs htdemucs_6s — vocal stem energy ratio | `demucs` + `torch` |
-| acousticness | librosa — HPSS harmonic ratio + flatness penalty | none |
-| liveness | librosa — DR ratio + compression proxy + mid contrast | none |
-| valence | librosa — KK key mode + spectral tilt + H/P ratio | none |
-| tempo, loudness, energy, danceability | librosa | none |
+| speechiness | Would require speech recognition for defensible upload analysis | not shipped |
+| instrumentalness | Would require vocal/source separation for defensible upload analysis | not shipped |
+| acousticness | librosa — HPSS harmonic ratio + flatness penalty | shipped |
+| liveness | Would require crowd/reverb/live-room modeling for defensible upload analysis | not shipped |
+| valence | Would require a richer mood model for defensible upload analysis | not shipped |
+| tempo, loudness, energy, danceability | librosa | shipped |
 
 ### New dependencies
 
@@ -493,9 +495,9 @@ CLAP_SR: int           = 48_000
 
 ---
 
-### Task 6.5 — Update `_extract_audio_features`  `DONE AS LIBROSA-ONLY`
+### Task 6.5 — Update `_extract_audio_features`  `DONE AS FIVE-FEATURE LOCAL PIPELINE`
 
-All 9 features are computed via librosa/soundfile/soxr. `y_harmonic` and `y_percussive` retained (needed for acousticness and valence). CLAP gate removed; acousticness/liveness/valence restored as Phase 5 librosa implementations.
+Upload extraction uses soundfile/soxr/librosa and returns only `tempo`, `loudness`, `energy`, `danceability`, and `acousticness`. The removed features may still be discussed in contextual dataset analysis when using Spotify-provided values, but the app no longer claims to extract them from uploads.
 
 ---
 
@@ -503,13 +505,13 @@ All 9 features are computed via librosa/soundfile/soxr. `y_harmonic` and `y_perc
 
 **File:** `index.html`
 
-The current UI is upload-first and result-focused. Since the ML optional models were not shipped and `_extract_audio_features` returns all 9 librosa features, the auto-fill indicator and partial-feature availability note are no longer relevant.
+The current UI is upload-first and result-focused. Since the ML optional models were not shipped and `_extract_audio_features` intentionally returns only five features, the auto-fill indicator and optional-model note are no longer relevant.
 
 1. **Loading copy:** Update the spinner text from `"Analyzing audio… ~15 seconds"` to `"Analyzing audio… up to 60 seconds depending on installed models"`.
 
 2. **Auto-fill indicator:** When sliders are filled from audio, the current code sets their values silently. Add a small `(auto)` label or green dot next to each slider that was auto-filled from audio, so users can distinguish ML-extracted values from default means. Sliders not in the response remain at mean with no indicator.
 
-3. **Feature availability note:** If fewer than 9 features come back from `/analyze-audio`, show a one-line note beneath the upload zone: `"X of 9 features were extracted from audio. Install optional packages for full extraction (see README)."` Count `Object.keys(data.features).length` to determine how many were returned.
+3. **Feature availability note:** Removed. The five-feature output is now the intended product surface, not a partial extraction state.
 
 ---
 
@@ -517,11 +519,11 @@ The current UI is upload-first and result-focused. Since the ML optional models 
 
 **File:** `test_app.py`
 
-1. Remove tests for the 5 deleted librosa functions: `test_compute_speechiness_in_0_1`, `test_compute_instrumentalness_in_0_1`, `test_compute_instrumentalness_not_always_zero`, `test_compute_liveness_in_0_1`, `test_compute_valence_in_0_1`.
+1. Upload integration tests now assert that `/analyze-audio` returns exactly the five retained features.
 
 2. Add `test_analyze_audio_always_returns_four_base_features`: confirm that `/analyze-audio` always returns at least `tempo`, `loudness`, `energy`, `danceability` regardless of which ML packages are installed.
 
-3. Add `test_analyze_audio_returns_no_deleted_librosa_features`: confirm that the response never contains keys `acousticness_hpss`, `liveness_dr` or any other removed heuristic — specifically that `speechiness`, `instrumentalness`, `liveness`, `acousticness`, `valence` are only present when the corresponding ML package is available (mock `WHISPER_AVAILABLE = False` etc. to test the absent case).
+3. `test_analyze_audio_returns_no_deleted_librosa_features` confirms that removed upload keys such as `speechiness`, `instrumentalness`, `liveness`, and `valence` do not appear.
 
 4. Add unit tests for each new compute function (gated with `pytest.importorskip`):
    - `test_compute_speechiness_whisper_returns_zero_for_sine` — a pure sine wave has no speech
@@ -548,7 +550,7 @@ Not applicable to the current code because Whisper/Demucs/CLAP were not shipped.
 
 ## Phase 7 — Accuracy & Frontend Cleanup (Code Review 2026-04-16)
 
-> Findings from a focused review of the 9 audio-feature compute functions and the `index.html` UI after the librosa-only revert. Severity tags reflect impact on prediction accuracy or user-visible behaviour.
+> Findings from a focused review of the audio-feature compute functions and the `index.html` UI after the librosa-only revert. Severity tags reflect impact on prediction accuracy or user-visible behaviour.
 
 ### Audio Function Fixes
 
@@ -627,12 +629,12 @@ Pure digital synths score ≥ 0.9 acousticness because of low spectral flatness 
 
 `.sliders-panel { display: none; }` and `.feature-cards-section { display: none; }` are never toggled visible. ~250 lines of HTML/JS (`toggleSliders`, `applyRecommended`, `resetSliders`, `buildSliders`, optimize button, feature-cards grid) run with no user-visible effect. Either delete the dead code or restore visibility — pick one.
 
-#### Task 7.11 — Remove non-functional auto-fill dot + 9-feature note  `HIGH` `DONE`
+#### Task 7.11 — Remove non-functional auto-fill dot + feature-count note  `HIGH` `DONE`
 
 **File:** `index.html:1943-1971`
 
 - `document.querySelector('label[for="slider-${feat}"]')` returns `null` because sliders have `aria-label` only — green dots never appear.
-- After the librosa-only refactor `_extract_audio_features` always returns 9 features, so the `extractedCount < 9` branch never fires.
+- The current upload product intentionally returns five features, so the old optional/full-extraction note is not useful.
 
 Delete both blocks from `processAudioFile`.
 
@@ -989,7 +991,7 @@ Updated `README.md` live demo link from `music-popularity-predictor.onrender.com
 
 ### Task 9.4 — Audio Upload Fix `LOCAL VERIFIED / REMOTE VERIFY NEXT`
 
-**Status:** Deploy `48acdc4` is live but remote audio upload still needs a real browser/upload check. Local integration now verifies generated WAV upload returns all 9 audio features.
+**Status:** Deploy `48acdc4` is live but remote audio upload still needs a real browser/upload check. Local integration now verifies generated WAV upload returns the retained upload features.
 
 **Problem:** Uploading MP3 causes worker OOM/timeout on 512 MB Render free tier. Root cause: numba `@guvectorize` in `librosa.core.audio` JIT compiles at runtime (~200 MB RAM spike). Build-time pre-compilation doesn't help because Render build and runtime are separate containers.
 
@@ -1019,18 +1021,20 @@ Updated `README.md` live demo link from `music-popularity-predictor.onrender.com
 - Verdict copy now says results are based on audio features only
 - README now states that upload scoring is an audio-only appeal estimate, not a direct Spotify popularity forecast
 - Model performance table now separates:
-  - **Full model R²** — includes `artist_avg_popularity`
-  - **Audio-only R²** — relevant metric for uploaded tracks
+  - **Context model R²** — includes `artist_avg_popularity`
+  - **Upload audio-only R²** — relevant metric for uploaded tracks
 
 ### Task 10.2 — Model metadata schema and validation `DONE`
 
 **Files:** `analyze.py`, `APP.py`, `model.pkl`
 
-- Added `schema_version: 2` to the saved payload
-- Added `n_estimators` to the saved payload and updated existing `model.pkl` to `50`
+- Upgraded `model.pkl` to `schema_version: 3`
+- Saved both `context_model` and `upload_model`
+- Saved explicit `context_features`, `upload_features`, `context_metrics`, and `upload_metrics`
+- Added `n_estimators` to the saved payload
 - Added `REQUIRED_MODEL_KEYS` and `_validate_model_payload()` in `APP.py`
 - Startup now exits with a clear log error if required model metadata is missing
-- `/meta` exposes `schema_version` and `n_estimators`
+- `/meta` exposes `schema_version`, `n_estimators`, model families, and both metric groups
 - UI model card renders tree count from `/meta` instead of hardcoded `100`
 
 ### Task 10.3 — Prediction API honesty and sklearn warning fix `DONE`
@@ -1046,9 +1050,11 @@ Updated `README.md` live demo link from `music-popularity-predictor.onrender.com
 "prediction_context": {
   "uses_artist_context": false,
   "uses_audio_only_input": true,
-  "filled_features": ["key", "mode", "time_signature", "explicit", "duration_min", "artist_avg_popularity"]
+  "defaulted_features": []
 }
 ```
+
+The full response also includes `score_interval`, `model_used: "upload_audio_only"`, retained `features`, and per-feature confidence.
 
 ### Task 10.4 — Health endpoint `DONE`
 
@@ -1077,6 +1083,7 @@ Implementation uses `importlib.util.find_spec("librosa")` so the health check do
   - `pandas>=2.0,<2.3`
   - `scipy>=1.10,<1.14`
 - Added direct runtime dependencies: `soundfile`, `soxr`
+- Added optional lightweight `pyloudnorm` for integrated loudness when available
 
 ### Task 10.6 — Test expansion `DONE`
 
@@ -1084,14 +1091,55 @@ Implementation uses `importlib.util.find_spec("librosa")` so the health check do
 
 Added focused tests for:
 - `/predict` returns `prediction_context`
-- defaulted non-audio fields are listed in `filled_features`
+- no hidden artist/context fields are defaulted in upload predictions
 - no sklearn feature-name warning is emitted by `/predict`
 - `/meta` metadata consistency (`schema_version`, `n_estimators`, `r2_base`)
 - `/health` status, feature count, and model-loaded state
-- generated WAV upload returns exactly all 9 audio features
+- generated WAV upload returns exactly the five retained upload features plus confidence and diagnostics
 - `_validate_model_payload()` rejects missing required keys
 
-**Verification:** `python3 -m pytest test_app.py -q` → `44 passed`
+**Verification:** `python3 -m pytest test_app.py -q` → `48 passed`
 
 One benign warning remains in the generated short-WAV test:
 `librosa.core.spectrum.py: n_fft=1024 is too large for input signal of length=690`.
+
+---
+
+## Phase 11 — Remove Unreliable Upload Feature Claims
+
+> Added: 2026-05-01 after user reported a pure instrumental, non-live upload receiving low `instrumentalness`, above-average `speechiness`, and high `liveness`.
+
+### Task 11.1 — Remove unreliable upload features `DONE`
+
+**Files:** `APP.py`, `index.html`, `README.md`, `test_app.py`, `analyze.py`, `model.pkl`
+
+Removed these from upload extraction, upload scoring, visible upload insights, and feature confidence:
+- `speechiness`
+- `instrumentalness`
+- `liveness`
+- `valence`
+
+Reason: with the current local-only pipeline, these require capabilities the app does not have:
+- speech recognition for words/spoken content
+- vocal/source separation for instrumental-vs-vocal detection
+- crowd/reverb/live-room recognition for liveness
+- richer mood modeling for valence
+
+### Task 11.2 — Retrain upload model on retained features `DONE`
+
+Upload model now uses only:
+- `danceability`
+- `energy`
+- `loudness`
+- `acousticness`
+- `tempo`
+
+Contextual analysis model still uses the broader Kaggle/Spotify-provided feature set plus `artist_avg_popularity` for portfolio analysis.
+
+Current metrics after retraining:
+- Context model random-split R²: `0.445`
+- Upload model random-split R²: `0.183`
+- Upload model artist-grouped R²: `0.006`
+- Upload model MAE: `14.4`
+
+Interpretation: the upload score is more honest but weaker. The near-zero artist-grouped R² is evidence that audio-only generalization is very limited once artist/context effects are removed.
