@@ -1,13 +1,15 @@
 # analysisProject — Progress Tracker
 
 > Consolidated from PROJECT_PLAN.md, IMPROVEMENTS.md, memory, and verified against current code.
-> Last updated: 2026-04-21
+> Last updated: 2026-04-30
 
 ---
 
 ## Project Goal
 
-Web app that predicts Spotify track popularity from audio features. No Spotify API needed at runtime. Dataset: Kaggle "Spotify Tracks Dataset" (~90k tracks, ~114 genres) with pre-computed audio features + popularity scores.
+Web app that estimates an audio-based popularity signal from uploaded audio features. No Spotify API needed at runtime. Dataset: Kaggle "Spotify Tracks Dataset" (~90k tracks, ~114 genres) with pre-computed audio features + popularity scores.
+
+Important current framing: the full model includes `artist_avg_popularity`, but upload users do not provide artist, playlist, release, or marketing context. The upload UI therefore presents an **audio-only appeal estimate**, not a direct Spotify popularity forecast.
 
 **Stack:** Python, Flask, scikit-learn (RandomForest), librosa, HTML/CSS/JS (dark theme).
 
@@ -19,7 +21,7 @@ Web app that predicts Spotify track popularity from audio features. No Spotify A
 |------|------|--------|
 | `clean.py` | Loads `dataset.csv` → produces `cleaned.csv` | DONE — do not modify |
 | `analyze.py` | Trains RandomForest regressor → saves `model.pkl` | DONE |
-| `APP.py` | Flask server: `/`, `/meta`, `/predict`, `/analyze-audio`, `/genres` | DONE |
+| `APP.py` | Flask server: `/`, `/meta`, `/health`, `/predict`, `/analyze-audio`, `/genres` | DONE |
 | `index.html` | Single-page UI: upload, gauge, insights, importance chart | DONE |
 | `config.py` | Shared feature list used by `analyze.py` and `APP.py` | DONE |
 | `eda.py` | Standalone EDA script — popularity distribution + genre chart | DONE |
@@ -35,15 +37,13 @@ Web app that predicts Spotify track popularity from audio features. No Spotify A
 ### Task 0.1 — Audio upload section `DONE`
 - Drag-and-drop zone accepting `.mp3`, `.wav`, `.flac`, `.m4a`
 - Loading spinner with "Analyzing audio… ~15 seconds" copy
-- Auto-fills sliders from extracted features, then calls `predict()`
-- Per-feature fitness score cards (grid, color-coded green/amber/red)
-- Actionable summary line listing features with score < 50
-- Clear button resets sliders to dataset means and hides cards
-- Disclaimer: "Feature extraction is estimated via librosa…"
+- Uses extracted features directly in `predict()`; sliders are hidden and no longer the primary UX
+- Per-feature fitness cards and clear/reset controls were removed during the upload-first cleanup
+- Result panel now shows score gauge, audio-only insight bars, optimal profile card, and model accuracy cards
 
-### Task 0.2 — Hero steps update `DONE`
-- "Path A / Path B" labels replaced with "Manual" / "Upload"
-- Hero description updated to reflect both interaction paths
+### Task 0.2 — Hero copy update `DONE`
+- Product copy reframed from "Hit or Miss?" / popularity prediction to "Audio Popularity Signal"
+- Hero description now states that the score estimates appeal from sound alone while artist/release context stays unknown
 
 ---
 
@@ -74,8 +74,9 @@ Original plan called for a RandomForest classifier saved in `model.pkl` and retu
 ### Task 2.3 — Artist average popularity feature `DONE`
 - `analyze.py` computes `artist_avg_popularity` as per-artist mean popularity, appended to `FEATURES` at training time
 - `model.pkl` payload includes `artist_lookup` dict and `global_avg_popularity`
-- `/predict` accepts optional `artist` field; falls back to global average if not found
-- Response includes `artist_found` boolean so UI can show "✓ Found in dataset" or "Not in dataset — using global average"
+- Current upload API deliberately does **not** use request-time artist context
+- `/predict` always fills `artist_avg_popularity` with the training global average and returns `prediction_context.uses_artist_context = false`
+- `artist_found` was removed from the response and is covered by tests
 
 ---
 
@@ -83,23 +84,23 @@ Original plan called for a RandomForest classifier saved in `model.pkl` and retu
 
 ### Task 3.1 — Show model accuracy honestly `DONE`
 Accuracy card in `index.html` shows:
-- R² score and audio-only R² (from `meta.r2_base`)
-- Plain-English: "Audio features alone explain ~X% — artist fame adds the remaining ~Y%"
-- Unexplained variance attributed to playlist placement, release timing, marketing
+- Full model R² and audio-only R² (from `meta.r2_base`)
+- Plain-English note that the full model includes historical artist popularity unavailable in the upload flow
+- Upload score is described as the relevant audio-only estimate
 - Mean prediction error ±MAE pts
 - CV line will auto-appear when Task 1.2 is done (already wired via `meta.cv_r2_mean`)
 
-### Task 3.2 — Genre filter dropdown `DONE`
+### Task 3.2 — Genre endpoint and comparisons `BACKEND DONE / UI REMOVED`
 - `analyze.py` computes `genre_means` (per-genre feature means) → saved in `model.pkl`
 - `/genres` endpoint returns sorted genre list
 - `/predict` uses genre-specific means for insight comparisons when `genre` is sent
-- `index.html` has genre `<select>` that fetches `/genres` on load; genre sent with each predict call
-- Insights title updates dynamically: "Your values vs. {genre} average"
+- The current upload-first `index.html` does **not** expose a genre dropdown
+- Insights default to dataset average unless API callers send `genre` directly
 
 ### Task 3.3 — Feature importance bar chart `DONE`
-- Horizontal bar chart rendered from `meta.importance` in the result panel
+- Horizontal bar chart rendered from `meta.audio_importance` in the result panel
 - Bars renormalized to audio-only features (excluding `artist_avg_popularity`) so values are readable (~5–25% per feature)
-- Legend: "Share of audio impact"
+- Title: "Audio-Only Feature Importance"
 - Bars are 6px tall with inline percentage label
 
 ---
@@ -185,20 +186,15 @@ All computed in `APP.py` via `librosa`; extracted features match Spotify's schem
 
 ## Remaining Work
 
-### Task 6.8 — Processing Time Benchmarks  `TODO`
+### Current Unimplemented / Deferred Items `UPDATED 2026-04-30`
 
-After installing ML packages, time the full pipeline on a sample file:
-
-```
-librosa (4 features):     target < 5s
-Whisper tiny (60s clip):  target < 10s
-Demucs (20s clip, CPU):   target < 60s
-CLAP (30s clip):          target < 15s
-Total:                    target < 90s
-```
-
-If Demucs on CPU exceeds 60s, reduce the analysis cap from 20s to 10s.
-If total exceeds 90s, update the UI loading copy accordingly.
+1. **Remote Render audio upload verification** — local generated WAV integration test passes, but the deployed Render audio upload path still needs a real browser/upload check after the latest changes.
+2. **Optional ML audio models** — Whisper/Demucs/CLAP were planned in Phase 6 but are not implemented in the current app. They remain deferred/superseded because runtime weight and CPU/RAM cost do not fit the Render free-tier goal.
+3. **Genre dropdown UI** — backend `/genres` and `/predict` genre comparisons still exist, but the current upload-first UI no longer exposes genre selection.
+4. **Artist context input** — artist lookup remains in `model.pkl`, but `/predict` intentionally defaults artist context to the global training mean and reports `uses_artist_context: false`.
+5. **Best model from notebook tuning** — Phase 8C.4 remains deferred; production still uses the 50-tree RandomForest for deployability.
+6. **Self-host Google Fonts** — Phase 7.15 remains skipped.
+7. **Shared `config.py` import hookup** — `config.py` exists, but `analyze.py` still defines matching feature lists locally. Optional cleanup only.
 
 ---
 
@@ -317,13 +313,13 @@ After Tasks 5.1–5.4:
 
 ---
 
-## Phase 6 — ML-based Feature Replacement (Speechiness, Instrumentalness)
+## Phase 6 — ML-based Feature Replacement (Speechiness, Instrumentalness) `SUPERSEDED`
 
-> Added: 2026-04-15. Two audio features replaced with ML models. Acousticness, liveness, and valence retain their improved Phase 5 librosa implementations — CLAP (~900 MB) was evaluated but dropped as too heavyweight for a web app context.
+> Added: 2026-04-15. Later superseded by Render free-tier constraints and the upload-first product direction. Current code does **not** include Whisper, Demucs, torch, or CLAP; all 9 audio features are computed with the librosa/soundfile/soxr path in `APP.py`.
 
 ### Design Decision: CLAP Dropped
 
-CLAP would have added ~900 MB of model weights for acousticness/liveness/valence. Whisper tiny (~39 MB) + Demucs (~80 MB) = ~120 MB total, which is reasonable. The Phase 5 improved librosa heuristics for acousticness (HPSS + flatness penalty), liveness (DR ratio + compression proxy), and valence (KK key mode + spectral tilt + H/P ratio) are meaningfully better than the originals and add zero weight.
+CLAP would have added ~900 MB of model weights for acousticness/liveness/valence. Whisper tiny (~39 MB) + Demucs (~80 MB) = ~120 MB total, but the CPU/RAM cost is not reasonable for the current Render free-tier deployment target. The Phase 5 improved librosa heuristics are the current production path.
 
 ### Feature Strategy
 
@@ -349,7 +345,7 @@ Each model is gated behind its own availability flag (`WHISPER_AVAILABLE`, `DEMU
 
 ---
 
-### Task 6.1 — Model Loading Infrastructure  `DONE`
+### Task 6.1 — Model Loading Infrastructure  `SUPERSEDED / NOT IMPLEMENTED`
 
 **File:** `APP.py`
 
@@ -397,7 +393,7 @@ Log a one-time `INFO` message when each model is loaded for the first time.
 
 ---
 
-### Task 6.2 — Speechiness via Whisper  `DONE`
+### Task 6.2 — Speechiness via Whisper  `SUPERSEDED / NOT IMPLEMENTED`
 
 **File:** `APP.py`
 
@@ -421,7 +417,7 @@ WHISPER_ANALYSIS_SEC: int  = 60
 
 ---
 
-### Task 6.3 — Instrumentalness via Demucs  `DONE`
+### Task 6.3 — Instrumentalness via Demucs  `SUPERSEDED / NOT IMPLEMENTED`
 
 **File:** `APP.py`
 
@@ -497,17 +493,17 @@ CLAP_SR: int           = 48_000
 
 ---
 
-### Task 6.5 — Update `_extract_audio_features`  `DONE`
+### Task 6.5 — Update `_extract_audio_features`  `DONE AS LIBROSA-ONLY`
 
-7 features always computed via librosa; 2 ML features conditionally added.
-`y_harmonic` and `y_percussive` retained (needed for acousticness and valence).
-CLAP gate removed; acousticness/liveness/valence restored as Phase 5 librosa implementations.
+All 9 features are computed via librosa/soundfile/soxr. `y_harmonic` and `y_percussive` retained (needed for acousticness and valence). CLAP gate removed; acousticness/liveness/valence restored as Phase 5 librosa implementations.
 
 ---
 
-### Task 6.6 — UI Updates  `DONE`
+### Task 6.6 — UI Updates  `PARTIAL / SUPERSEDED`
 
 **File:** `index.html`
+
+The current UI is upload-first and result-focused. Since the ML optional models were not shipped and `_extract_audio_features` returns all 9 librosa features, the auto-fill indicator and partial-feature availability note are no longer relevant.
 
 1. **Loading copy:** Update the spinner text from `"Analyzing audio… ~15 seconds"` to `"Analyzing audio… up to 60 seconds depending on installed models"`.
 
@@ -517,7 +513,7 @@ CLAP gate removed; acousticness/liveness/valence restored as Phase 5 librosa imp
 
 ---
 
-### Task 6.7 — Tests  `DONE`
+### Task 6.7 — Tests  `SUPERSEDED`
 
 **File:** `test_app.py`
 
@@ -534,7 +530,7 @@ CLAP gate removed; acousticness/liveness/valence restored as Phase 5 librosa imp
 
 ---
 
-### Task 6.8 — Processing Time Benchmarks  `DONE`
+### Task 6.8 — Processing Time Benchmarks  `SUPERSEDED`
 
 After implementation, time the full pipeline on a sample file:
 
@@ -546,7 +542,7 @@ CLAP (30s clip):          target < 15s
 Total:                    target < 90s
 ```
 
-If Demucs on CPU exceeds 60s, reduce the clip cap from 20s to 10s. If total exceeds 90s, update the UI loading copy accordingly. Document the benchmarks in a comment at the top of `_extract_audio_features`.
+Not applicable to the current code because Whisper/Demucs/CLAP were not shipped.
 
 ---
 
@@ -652,11 +648,11 @@ Backend already exposes `meta.audio_importance` (renormalized to sum to 1 over s
 
 Score number lives inside an SVG `<text>`; screen readers don't reliably announce SVG text changes. Mobile sticky bar already has `aria-live="polite"` (L1234) but the desktop gauge does not. Mirror the score into a hidden `sr-only` live region or add `aria-live="polite"` to `.score-card`.
 
-#### Task 7.14 — Remove inline event handlers + add CSP meta tag  `LOW` `DONE`
+#### Task 7.14 — Remove inline event handlers + add CSP protection  `LOW` `DONE`
 
 **File:** `index.html:1218, 1246, 1259-1260, head`
 
-Replace `onclick="..."` with `addEventListener` registrations in the script block, then add `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com">`.
+Replace `onclick="..."` with `addEventListener` registrations in the script block. CSP is now set as a Flask response header in `APP.py` instead of an HTML meta tag, while still allowing the current inline single-file CSS/JS frontend.
 
 #### Task 7.15 — Self-host Google Fonts with `font-display: swap`  `LOW` `SKIP`
 > Requires downloading font files to disk — deferred; functional impact is minimal.
@@ -966,21 +962,136 @@ The numpy `<2.0` constraint forced building from source on Python 3.14 (no prebu
 
 3. **Commit `b1e3bfe`** — Switched from `pickle` to `joblib` with `compress=3` (model.pkl: 388 MB → 38 MB), reduced `n_estimators` from 100 → 50 (R² 0.446 → 0.445), and lazy-loaded librosa (only imports on `/analyze-audio` request). **Deploy succeeded — site is live.**
 
+4. **Commit `63f7990`** — Audio upload returned "audio analysis failed" because `librosa.core.audio` uses numba `@guvectorize` (not blocked by `NUMBA_DISABLE_JIT=1`). At runtime, numba tried to JIT compile the guvectorize functions and OOM'd on 512 MB. Fix attempt: added `_prewarm_numba()` to `analyze.py` to pre-compile during build. **Did NOT work** — Render build and runtime are separate containers, so cached numba artifacts don't carry over.
+
+5. **Commit `48acdc4`** — Replaced `librosa.load()` with `soundfile.read()` + `soxr.resample()` to bypass numba `@guvectorize` entirely at runtime. Reduced audio duration from 90s → 30s to cut memory/CPU by ~3x. Set `NUMBA_DISABLE_JIT=1` at runtime (in code via `os.environ.setdefault`). Also set env var on Render. **Deploy succeeded (status: live) but audio upload NOT YET VERIFIED — user will test next session.**
+
 **Final Render env vars:** `PYTHON_VERSION=3.11.9`, `NUMBA_DISABLE_JIT=1`
 
 ### Task 9.3 — Update README with new URL  `DONE`
 
 Updated `README.md` live demo link from `music-popularity-predictor.onrender.com` → `music-popularity-analysis.onrender.com`.
 
-### Phase 9 Completion Notes (2026-04-22)
+### Phase 9 Notes (2026-04-22)
 
 **Live URL:** https://music-popularity-analysis.onrender.com
-**Deploy:** `dep-d7k7v7u7r5hc73ep77qg` — status `live`, commit `b1e3bfe`
+**Latest deploy:** `dep-d7k8fc9ubu7c73fc5ni0` — status `live`, commit `48acdc4`
+**Service ID:** `srv-d7ji7bd7vvec738v8630` | **Workspace:** `tea-d7ji5f7avr4c73cau090`
 
 **Key changes for deployment:**
 - `requirements.txt` — added `pandas>=2.0,<3.0`
 - `.python-version` — pins Python 3.11.9
 - `render.yaml` — service name fixed to `music-popularity-analysis`
-- `analyze.py` — joblib compression, 50 trees instead of 100
-- `APP.py` — lazy librosa import, joblib model loading
+- `analyze.py` — joblib compression, 50 trees instead of 100, `_prewarm_numba()` (build-only)
+- `APP.py` — lazy librosa import, joblib model loading, soundfile+soxr audio loading (bypasses numba), 30s audio duration limit
 - `model.pkl` — 38 MB (compressed) vs 388 MB (raw pickle)
+- Render env vars: `PYTHON_VERSION=3.11.9`, `NUMBA_DISABLE_JIT=1`
+
+### Task 9.4 — Audio Upload Fix `LOCAL VERIFIED / REMOTE VERIFY NEXT`
+
+**Status:** Deploy `48acdc4` is live but remote audio upload still needs a real browser/upload check. Local integration now verifies generated WAV upload returns all 9 audio features.
+
+**Problem:** Uploading MP3 causes worker OOM/timeout on 512 MB Render free tier. Root cause: numba `@guvectorize` in `librosa.core.audio` JIT compiles at runtime (~200 MB RAM spike). Build-time pre-compilation doesn't help because Render build and runtime are separate containers.
+
+**Current fix (commit `48acdc4`):**
+- Replaced `librosa.load()` with `soundfile.read()` + `soxr.resample()` (pure C, no numba)
+- Reduced audio from 90s → 30s
+- Set `NUMBA_DISABLE_JIT=1` at runtime
+
+**If audio upload still fails next session:**
+- Check Render logs for the specific error (OOM, timeout, or soundfile format issue)
+- `soundfile` 0.13.1 should support MP3 via libsndfile 1.1+ — but if it doesn't, fall back to `audioread` for MP3
+- Consider whether some librosa feature functions (beat_track, chroma_cqt) also trigger numba internally
+- Nuclear option: accept audio upload won't work on 512 MB free tier and show a clear "not supported on free hosting" message, or offload to a background job
+
+---
+
+## Phase 10 — Honest UX, Metadata, Health, and Tests
+
+> Added: 2026-04-30. Implements the "honest UX" pass: make upload scoring explicit about its audio-only context, harden model metadata, expose health checks, and expand tests around the real upload path.
+
+### Task 10.1 — Reframe product copy around audio-only signal `DONE`
+
+**Files:** `index.html`, `README.md`
+
+- Renamed visible product framing from "Song Popularity Predictor" / "Hit or Miss?" to **Audio Popularity Signal**
+- Score card label changed to "Audio Popularity Signal"
+- Verdict copy now says results are based on audio features only
+- README now states that upload scoring is an audio-only appeal estimate, not a direct Spotify popularity forecast
+- Model performance table now separates:
+  - **Full model R²** — includes `artist_avg_popularity`
+  - **Audio-only R²** — relevant metric for uploaded tracks
+
+### Task 10.2 — Model metadata schema and validation `DONE`
+
+**Files:** `analyze.py`, `APP.py`, `model.pkl`
+
+- Added `schema_version: 2` to the saved payload
+- Added `n_estimators` to the saved payload and updated existing `model.pkl` to `50`
+- Added `REQUIRED_MODEL_KEYS` and `_validate_model_payload()` in `APP.py`
+- Startup now exits with a clear log error if required model metadata is missing
+- `/meta` exposes `schema_version` and `n_estimators`
+- UI model card renders tree count from `/meta` instead of hardcoded `100`
+
+### Task 10.3 — Prediction API honesty and sklearn warning fix `DONE`
+
+**File:** `APP.py`
+
+- `/predict` now builds a pandas `DataFrame` with `columns=features` before `model.predict()`
+- This removes sklearn "valid feature names" warnings
+- `/predict` remains backward compatible for callers sending any subset of features
+- Response now includes:
+
+```json
+"prediction_context": {
+  "uses_artist_context": false,
+  "uses_audio_only_input": true,
+  "filled_features": ["key", "mode", "time_signature", "explicit", "duration_min", "artist_avg_popularity"]
+}
+```
+
+### Task 10.4 — Health endpoint `DONE`
+
+**File:** `APP.py`
+
+Added `/health` returning:
+- `status`
+- `model_loaded`
+- `schema_version`
+- `feature_count`
+- `librosa_importable`
+
+Implementation uses `importlib.util.find_spec("librosa")` so the health check does not import librosa or increase startup memory.
+
+### Task 10.5 — CSP header and dependency pins `DONE`
+
+**Files:** `APP.py`, `requirements.txt`, `README.md`
+
+- Added Flask `after_request` CSP response header
+- Removed the HTML CSP meta tag from `index.html`
+- Header remains compatible with current inline CSS/JS and Google Fonts
+- Tightened runtime pins:
+  - `scikit-learn>=1.4,<1.6`
+  - `librosa>=0.10.2,<0.11`
+  - `numpy>=1.24,<1.27`
+  - `pandas>=2.0,<2.3`
+  - `scipy>=1.10,<1.14`
+- Added direct runtime dependencies: `soundfile`, `soxr`
+
+### Task 10.6 — Test expansion `DONE`
+
+**File:** `test_app.py`
+
+Added focused tests for:
+- `/predict` returns `prediction_context`
+- defaulted non-audio fields are listed in `filled_features`
+- no sklearn feature-name warning is emitted by `/predict`
+- `/meta` metadata consistency (`schema_version`, `n_estimators`, `r2_base`)
+- `/health` status, feature count, and model-loaded state
+- generated WAV upload returns exactly all 9 audio features
+- `_validate_model_payload()` rejects missing required keys
+
+**Verification:** `python3 -m pytest test_app.py -q` → `44 passed`
+
+One benign warning remains in the generated short-WAV test:
+`librosa.core.spectrum.py: n_fft=1024 is too large for input signal of length=690`.

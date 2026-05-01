@@ -7,6 +7,8 @@ import io
 import json
 import os
 import sys
+import warnings
+import wave
 
 import pytest
 
@@ -41,11 +43,13 @@ class TestMeta:
         assert client.get("/meta").status_code == 200
 
     def test_has_required_keys(self, meta_data):
-        for key in ("features", "slider_features", "importance", "ranges", "r2", "mae", "recommended"):
+        for key in ("features", "slider_features", "upload_features", "context_features",
+                    "importance", "ranges", "r2", "mae", "recommended",
+                    "context_metrics", "upload_metrics", "model_families"):
             assert key in meta_data, f"Missing key: {key}"
 
     def test_slider_features_count(self, meta_data):
-        assert len(meta_data["slider_features"]) == 9
+        assert len(meta_data["slider_features"]) == 5
 
     def test_recommended_covers_all_slider_features(self, meta_data):
         for feat in meta_data["slider_features"]:
@@ -54,6 +58,28 @@ class TestMeta:
     def test_ranges_have_min_max_mean(self, meta_data):
         for feat, rng in meta_data["ranges"].items():
             assert "min" in rng and "max" in rng and "mean" in rng
+
+    def test_model_metadata_consistency(self, meta_data):
+        import APP
+        assert meta_data["schema_version"] == 3
+        assert meta_data["n_estimators"] == APP.upload_model.n_estimators
+        assert "r2_base" in meta_data
+        assert meta_data["r2_base"] <= meta_data["r2"]
+        assert meta_data["model_families"]["upload_audio_only"]["uses_artist_context"] is False
+
+
+# ── /health ───────────────────────────────────────────────────────────────────
+
+class TestHealth:
+    def test_status_200(self, client):
+        res = client.get("/health")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["status"] == "ok"
+        assert data["model_loaded"] is True
+        assert data["feature_count"] > 0
+        assert data["schema_version"] == 3
+        assert isinstance(data["librosa_importable"], bool)
 
 
 # ── /genres ───────────────────────────────────────────────────────────────────
@@ -83,7 +109,26 @@ class TestPredict:
         assert res.status_code == 200
         data = res.get_json()
         assert "score" in data
+        assert "score_interval" in data
+        assert data["model_used"] == "upload_audio_only"
+        assert data["score_interval"][0] <= data["score"] <= data["score_interval"][1]
         assert 0 <= data["score"] <= 100
+        assert "prediction_context" in data
+
+    def test_prediction_context_has_no_defaulted_non_audio_features(self, client):
+        data = self._post(client, {}).get_json()
+        ctx = data["prediction_context"]
+        assert ctx["uses_artist_context"] is False
+        assert ctx["uses_audio_only_input"] is True
+        assert ctx["defaulted_features"] == []
+
+    def test_predict_uses_feature_names_without_sklearn_warning(self, client):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            res = self._post(client, {})
+        assert res.status_code == 200
+        messages = [str(w.message) for w in caught]
+        assert not any("valid feature names" in msg for msg in messages)
 
     def test_score_always_in_0_100(self, client, meta_data):
         """Score must stay in [0, 100] even for extreme slider values."""
@@ -100,6 +145,7 @@ class TestPredict:
         assert "insights" in data
         for feat in meta_data["slider_features"]:
             assert feat in data["insights"], f"insights missing: {feat}"
+            assert "confidence" in data["insights"][feat]
 
     def test_insight_direction_values(self, client):
         data = self._post(client, {}).get_json()
@@ -133,6 +179,28 @@ class TestPredict:
 # ── /analyze-audio ────────────────────────────────────────────────────────────
 
 class TestAnalyzeAudio:
+    AUDIO_FEATURE_KEYS = {
+        "tempo", "loudness", "energy", "danceability", "acousticness",
+    }
+
+    def _sine_wav_bytes(self) -> io.BytesIO:
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not available")
+        sr = 22050
+        duration = 2.0
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        audio = (0.25 * np.sin(2 * np.pi * 440 * t) * 32767).astype("<i2")
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sr)
+            wav.writeframes(audio.tobytes())
+        buf.seek(0)
+        return buf
+
     def test_no_file_returns_400(self, client):
         res = client.post("/analyze-audio")
         assert res.status_code == 400
@@ -177,6 +245,33 @@ class TestAnalyzeAudio:
         # Should NOT be 415 (extension allowed); will be 400 because content is invalid
         assert res.status_code != 415
 
+    def test_uppercase_mp3_extension_passes_validation(self, client):
+        data = {"file": (io.BytesIO(b"not real mp3"), "TEST.MP3")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert res.status_code != 415
+
+    def test_mpeg_extension_passes_validation(self, client):
+        data = {"file": (io.BytesIO(b"not real mpeg"), "test.mpeg")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert res.status_code != 415
+
+    def test_mpeg_mime_passes_validation_without_extension(self, client):
+        data = {"file": (io.BytesIO(b"not real mp3"), "track", "audio/mpeg")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert res.status_code != 415
+
     def test_wav_extension_passes_validation(self, client):
         data = {"file": (io.BytesIO(b"RIFF"), "test.wav")}
         res = client.post(
@@ -195,6 +290,27 @@ class TestAnalyzeAudio:
             content_type="multipart/form-data",
         )
         assert res.status_code == 415
+
+    def test_generated_wav_returns_all_audio_features(self, client):
+        try:
+            import librosa  # noqa: F401
+            import soundfile  # noqa: F401
+            import soxr  # noqa: F401
+        except ImportError:
+            pytest.skip("audio dependencies not available")
+        data = {"file": (self._sine_wav_bytes(), "tone.wav")}
+        res = client.post(
+            "/analyze-audio",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert res.status_code == 200
+        payload = res.get_json()
+        feats = payload["features"]
+        assert set(feats) == self.AUDIO_FEATURE_KEYS
+        assert set(payload["feature_confidence"]) == self.AUDIO_FEATURE_KEYS
+        assert "diagnostics" in payload
+        assert "clip_duration_used_sec" in payload["diagnostics"]
 
 
 # ── /analyze-audio size guard ─────────────────────────────────────────────────
@@ -257,14 +373,16 @@ class TestAudioFeatureHelpers:
     def test_compute_tempo_in_valid_range(self, sine_wave):
         from APP import _compute_tempo, TEMPO_MIN_BPM, TEMPO_MAX_BPM
         y, sr = sine_wave
-        tempo_val, beat_frames = _compute_tempo(y, sr)
+        tempo_val, beat_frames, confidence = _compute_tempo(y, sr)
         assert TEMPO_MIN_BPM <= tempo_val <= TEMPO_MAX_BPM
+        assert 0.0 <= confidence <= 1.0
 
     def test_compute_loudness_in_db_range(self, sine_wave):
         from APP import _compute_loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB
         y, sr = sine_wave
-        loudness = _compute_loudness(y)
+        loudness, method = _compute_loudness(y, sr)
         assert LOUDNESS_MIN_DB <= loudness <= LOUDNESS_MAX_DB
+        assert method
 
     def test_compute_energy_in_0_1(self, sine_wave, shared_features):
         from APP import _compute_energy
@@ -275,7 +393,7 @@ class TestAudioFeatureHelpers:
     def test_compute_danceability_in_0_1(self, sine_wave):
         from APP import _compute_danceability, _compute_tempo
         y, sr = sine_wave
-        _, beat_frames = _compute_tempo(y, sr)
+        _, beat_frames, _ = _compute_tempo(y, sr)
         val = _compute_danceability(y, sr, beat_frames)
         assert 0.0 <= val <= 1.0
 
@@ -308,7 +426,10 @@ class TestAudioFeatureHelpers:
         )
         if res.status_code == 200:
             feats = res.get_json().get("features", {})
-            for bad_key in ("acousticness_hpss", "liveness_dr"):
+            for bad_key in (
+                "acousticness_hpss", "liveness_dr", "speechiness",
+                "instrumentalness", "liveness", "valence",
+            ):
                 assert bad_key not in feats, f"deleted heuristic key found: {bad_key}"
 
     # ── ML feature unit tests (gated with pytest.importorskip) ────────────────
@@ -326,7 +447,7 @@ class TestAudioFeatureHelpers:
         import librosa
         y, sr = sine_wave
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        tempo_val, _ = _compute_tempo(y, sr)
+        tempo_val, _, _ = _compute_tempo(y, sr)
         val = _compute_instrumentalness(mfccs, shared_features["stft"], shared_features["freqs"], sr, tempo_val)
         assert 0.0 <= val <= 1.0
 
@@ -346,7 +467,7 @@ class TestAudioFeatureHelpers:
         from APP import _compute_valence, _compute_tempo
         import librosa
         y, sr = sine_wave
-        tempo_val, _ = _compute_tempo(y, sr)
+        tempo_val, _, _ = _compute_tempo(y, sr)
         y_harmonic, y_percussive = librosa.effects.hpss(y)
         val = _compute_valence(
             y, sr, y_harmonic, y_percussive, tempo_val,
@@ -430,3 +551,22 @@ class TestArtistAvgTransformer:
         scores = cross_val_score(pipe, X, y, cv=5, scoring="r2")
         assert len(scores) == 5
         assert all(isinstance(s, float) for s in scores)
+
+
+# ── Startup metadata validation ───────────────────────────────────────────────
+
+class TestModelPayloadValidation:
+    def test_missing_required_model_key_fails_validation(self):
+        import APP
+        bad_payload = dict(APP.payload)
+        bad_payload.pop("schema_version", None)
+        with pytest.raises(KeyError, match="schema_version"):
+            APP._validate_model_payload(bad_payload)
+
+    def test_schema_v3_models_present(self):
+        import APP
+        APP._validate_model_payload(APP.payload)
+        assert APP.payload["schema_version"] == 3
+        assert APP.payload["context_model"] is not None
+        assert APP.payload["upload_model"] is not None
+        assert APP.payload["upload_features"] == APP.slider_features

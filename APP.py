@@ -9,14 +9,16 @@ Then open: http://127.0.0.1:8080
 
 import hashlib
 import hmac
+import importlib.util
 import logging
 import os
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Optional
 
 from flask import Flask, jsonify, request, send_from_directory
 from joblib import load as joblib_load
+import pandas as pd
 
 # Lazy-load librosa (and numpy/scipy) only when audio analysis is requested.
 # This keeps startup RAM under Render's 512 MB free-tier limit.
@@ -82,8 +84,20 @@ LIVENESS_QUIET_DB: float     = -45.0   # frames below this are considered quiet
 LIVENESS_ACTIVE_DB: float    = -25.0   # frames above this are considered active
 
 ALLOWED_AUDIO_EXTENSIONS: frozenset[str] = frozenset(
-    {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
+    {".mp3", ".mpeg", ".mpga", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 )
+ALLOWED_AUDIO_MIME_SUFFIXES: dict[str, str] = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/x-flac": ".flac",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/aac": ".aac",
+}
 
 
 # Krumhansl-Kessler key profiles (immutable tuples — never mutated in-place)
@@ -101,6 +115,20 @@ app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = UPLOAD_MAX_BYTES  # 413 before route handler
 
 # ── LOAD MODEL ────────────────────────────────────────────────────────────────
+REQUIRED_MODEL_KEYS: frozenset[str] = frozenset({
+    "context_model",
+    "upload_model",
+    "context_features",
+    "upload_features",
+    "importance",
+    "ranges",
+    "context_metrics",
+    "upload_metrics",
+    "schema_version",
+    "n_estimators",
+})
+
+
 def _load_model(path: str = "model.pkl") -> dict[str, Any]:
     """Load model.pkl via joblib, optionally verifying SHA-256."""
     expected_hash = os.environ.get("MODEL_PKL_SHA256")
@@ -115,25 +143,49 @@ def _load_model(path: str = "model.pkl") -> dict[str, Any]:
     return joblib_load(path)
 
 
+def _validate_model_payload(model_payload: dict[str, Any]) -> None:
+    """Validate model.pkl has the metadata fields the app and UI depend on."""
+    missing = sorted(REQUIRED_MODEL_KEYS - set(model_payload.keys()))
+    if missing:
+        raise KeyError(f"model.pkl missing required key(s): {', '.join(missing)}")
+    if model_payload["schema_version"] != 3:
+        raise KeyError(f"model.pkl schema_version must be 3, got {model_payload['schema_version']!r}")
+    missing_ranges = sorted(set(model_payload["upload_features"]) - set(model_payload["ranges"].keys()))
+    if missing_ranges:
+        raise KeyError(f"model.pkl ranges missing feature(s): {', '.join(missing_ranges)}")
+
+
 try:
     payload = _load_model()
+    _validate_model_payload(payload)
 except FileNotFoundError:
     logger.error("model.pkl not found. Run 'python3 analyze.py' first.")
     sys.exit(1)
+except KeyError as exc:
+    logger.error("Invalid model.pkl metadata: %s", exc)
+    sys.exit(1)
 
-model            = payload["model"]
-features         = payload["features"]
-slider_features  = payload.get("slider_features", features[:9])
+context_model    = payload["context_model"]
+upload_model     = payload["upload_model"]
+model            = upload_model  # backward-compatible alias for tests/health
+context_features = payload["context_features"]
+upload_features  = payload["upload_features"]
+features         = upload_features
+slider_features  = upload_features
 importance       = payload["importance"]
 audio_importance = payload.get("audio_importance", importance)
 ranges           = payload["ranges"]
-r2               = payload["r2"]
-mae              = payload["mae"]
+context_metrics  = payload["context_metrics"]
+upload_metrics   = payload["upload_metrics"]
+r2               = context_metrics["random_split_r2"]
+mae              = upload_metrics["random_split_mae"]
 pred_min         = payload.get("pred_min", 0)
 pred_max         = payload.get("pred_max", 100)
 recommended      = payload.get("recommended", {})
 global_avg_pop   = payload.get("global_avg_popularity", 0)
 genre_means      = payload.get("genre_means", {})
+schema_version   = payload["schema_version"]
+n_estimators     = payload["n_estimators"]
 # classifier is intentionally not extracted — tier is determined client-side
 
 
@@ -142,6 +194,28 @@ def _audio_importance_normalized() -> dict[str, float]:
     raw   = {f: audio_importance.get(f, 0.0) for f in slider_features}
     total = sum(raw.values()) or 1.0
     return {f: v / total for f, v in raw.items()}
+
+
+def _validated_audio_suffix(filename: Optional[str], content_type: Optional[str]) -> Optional[str]:
+    """Return a safe temp-file suffix when filename or browser MIME type is allowed."""
+    raw_suffix = os.path.splitext(filename or "")[1].lower()
+    if raw_suffix in ALLOWED_AUDIO_EXTENSIONS:
+        return raw_suffix
+    return ALLOWED_AUDIO_MIME_SUFFIXES.get((content_type or "").split(";")[0].lower())
+
+
+def _confidence_label(score: float) -> str:
+    """Convert a numeric confidence in [0, 1] to a user-facing label."""
+    if score >= 0.72:
+        return "High"
+    if score >= 0.42:
+        return "Medium"
+    return "Low"
+
+
+def _overall_feature_confidence(feature_confidence: dict[str, dict[str, Any]]) -> str:
+    scores = [float(v.get("score", 0.0)) for v in feature_confidence.values()]
+    return _confidence_label(sum(scores) / len(scores)) if scores else "Low"
 
 
 # ── ML MODEL LAZY LOADERS ─────────────────────────────────────────────────────
@@ -236,8 +310,8 @@ def _estimate_beat_frames(
     return np.unique(np.array(snapped, dtype=int))
 
 
-def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
-    """Return (tempo_bpm, beat_frames). Multi-stage disambiguation:
+def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray", float]:
+    """Return (tempo_bpm, beat_frames, confidence). Multi-stage disambiguation:
     1. Windowed tempogram score (±8 % BPM window) via _score_tempo_bpm.
     2. Half-tempo preferred at ≥65 % relative support, gated on ≥8 beat frames.
     3. Top-3 tempogram peaks as tie-breaker via _tempo_top3_tiebreaker.
@@ -287,15 +361,28 @@ def _compute_tempo(y: "np.ndarray", sr: int) -> tuple[float, "np.ndarray"]:
     if abs(tempo_val - tempo_bt) / (tempo_bt + 1e-6) > 0.05:
         beat_frames = _estimate_beat_frames(onset_env, sr, tempo_val)
 
-    return tempo_val, beat_frames
+    tempo_support = _score_tempo_bpm(tempo_val, tg_freqs, mean_tg) / (float(np.max(mean_tg)) + 1e-9)
+    beat_support = min(len(beat_frames) / 16.0, 1.0)
+    onset_support = float(np.clip(np.mean(onset_env) / (np.max(onset_env) + 1e-9) * 3.0, 0.0, 1.0))
+    confidence = float(np.clip(tempo_support * 0.45 + beat_support * 0.35 + onset_support * 0.20, 0.0, 1.0))
+
+    return tempo_val, beat_frames, confidence
 
 
-def _compute_loudness(y: "np.ndarray") -> float:
-    """Power-weighted active-frame loudness (energy-domain mean, LUFS-style).
+def _compute_loudness(y: "np.ndarray", sr: int) -> tuple[float, str]:
+    """Return loudness and method.
 
-    Arithmetic mean of dB under-weights loud frames vs Spotify's LUFS convention.
-    10*log10(mean(rms²)) better matches the training-data distribution.
+    Uses pyloudnorm integrated loudness when available. Falls back to active-frame
+    energy-domain mean when the optional dependency is unavailable.
     """
+    try:
+        import pyloudnorm as pyln  # type: ignore
+        meter = pyln.Meter(sr)
+        loudness = float(meter.integrated_loudness(y))
+        return float(np.clip(loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB)), "pyloudnorm_integrated_lufs"
+    except Exception:
+        pass
+
     rms         = librosa.feature.rms(y=y)[0]
     db          = librosa.amplitude_to_db(rms + 1e-9)
     active_mask = db > SILENCE_THRESHOLD_DB
@@ -303,7 +390,7 @@ def _compute_loudness(y: "np.ndarray") -> float:
         loudness = float(10.0 * np.log10(np.mean(rms[active_mask] ** 2) + 1e-12))
     else:
         loudness = float(10.0 * np.log10(np.mean(rms ** 2) + 1e-12))
-    return float(np.clip(loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB))
+    return float(np.clip(loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB)), "active_frame_energy_db"
 
 
 def _compute_energy(
@@ -527,19 +614,26 @@ def _compute_valence(
     ))
 
 
-def _extract_audio_features(file_path: str) -> dict[str, float]:
-    """Orchestrate per-feature helpers; return Spotify-like audio feature dict.
+def _extract_audio_features(file_path: str) -> dict[str, Any]:
+    """Return Spotify-like audio features plus confidence and diagnostics.
 
-    All 9 features computed entirely with librosa — no external ML packages required.
+    Only defensible local signal features are returned. Speechiness,
+    instrumentalness, liveness, and valence are intentionally excluded because
+    this app does not run speech recognition, vocal separation, live-room
+    detection, or mood models.
     """
     # Load with soundfile + soxr to avoid numba @guvectorize in librosa.load()
     # which OOMs on Render's 512 MB free tier during JIT compilation.
     data, native_sr = soundfile.read(file_path, dtype="float32")
     if data.ndim > 1:
         data = data.mean(axis=1)                    # stereo → mono
+    original_duration = float(len(data) / native_sr) if native_sr else 0.0
     max_samples = int(_MAX_DURATION_SEC * native_sr)
+    clipped = len(data) > max_samples
     if len(data) > max_samples:
         data = data[:max_samples]                    # trim to 30s
+    duration_used = float(len(data) / native_sr) if native_sr else 0.0
+    resampled = native_sr != _TARGET_SR
     if native_sr != _TARGET_SR:
         data = soxr.resample(data, native_sr, _TARGET_SR)
     y, sr = data, _TARGET_SR
@@ -549,22 +643,90 @@ def _extract_audio_features(file_path: str) -> dict[str, float]:
     mfccs            = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
     y_harmonic, y_percussive = librosa.effects.hpss(y)
 
-    tempo_val, beat_frames = _compute_tempo(y, sr)
+    tempo_val, beat_frames, tempo_confidence = _compute_tempo(y, sr)
+    loudness_val, loudness_method = _compute_loudness(y, sr)
+    rms = librosa.feature.rms(y=y)[0]
+    mean_rms = float(np.mean(rms))
+    too_quiet = loudness_val <= -48.0 or mean_rms < 0.002
+    too_short = duration_used < 10.0
+    base_quality = 1.0
+    if too_short:
+        base_quality -= 0.25
+    if too_quiet:
+        base_quality -= 0.35
+    base_quality = float(np.clip(base_quality, 0.15, 1.0))
 
-    return {
+    features_out = {
         "tempo":            round(tempo_val, 1),
-        "loudness":         round(_compute_loudness(y), 1),
+        "loudness":         round(loudness_val, 1),
         "energy":           round(_compute_energy(y, stft, freqs), 3),
         "danceability":     round(_compute_danceability(y, sr, beat_frames), 3),
-        "speechiness":      round(_compute_speechiness(y, sr, mfccs, stft, freqs), 3),
-        "instrumentalness": round(_compute_instrumentalness(mfccs, stft, freqs, sr, tempo_val), 3),
         "acousticness":     round(_compute_acousticness(y, sr, y_harmonic), 3),
-        "liveness":         round(_compute_liveness(y, sr), 3),
-        "valence":          round(_compute_valence(y, sr, y_harmonic, y_percussive, tempo_val, stft, freqs), 3),
+    }
+
+    feature_confidence_scores = {
+        "tempo": tempo_confidence * base_quality,
+        "loudness": (0.88 if loudness_method.startswith("pyloudnorm") else 0.72) * base_quality,
+        "energy": 0.70 * base_quality,
+        "danceability": (0.35 + 0.55 * tempo_confidence) * base_quality,
+        "acousticness": 0.48 * base_quality,
+    }
+    feature_notes = {
+        "tempo": "Beat tracking is weaker on sparse, rubato, or very short clips.",
+        "loudness": "Integrated LUFS is used when available; otherwise active-frame dB is an approximation.",
+        "energy": "Energy is approximated from loudness, high-frequency energy, and centroid.",
+        "danceability": "Depends heavily on tempo and beat confidence.",
+        "acousticness": "Synthetic and acoustic timbres can be confused by HPSS and flatness heuristics.",
+    }
+    feature_confidence = {
+        feat: {
+            "score": round(float(np.clip(score, 0.0, 1.0)), 3),
+            "label": _confidence_label(float(np.clip(score, 0.0, 1.0))),
+            "note": feature_notes[feat],
+        }
+        for feat, score in feature_confidence_scores.items()
+    }
+
+    diagnostics = {
+        "original_duration_sec": round(original_duration, 2),
+        "clip_duration_used_sec": round(duration_used, 2),
+        "native_sample_rate": int(native_sr),
+        "analysis_sample_rate": int(sr),
+        "resampled": bool(resampled),
+        "trimmed_to_max_duration": bool(clipped),
+        "too_short": bool(too_short),
+        "too_quiet": bool(too_quiet),
+        "tempo_confidence_low": bool(tempo_confidence < 0.42),
+        "tempo_confidence": round(float(tempo_confidence), 3),
+        "beat_frame_count": int(len(beat_frames)),
+        "loudness_method": loudness_method,
+    }
+
+    return {
+        "features": features_out,
+        "feature_confidence": feature_confidence,
+        "diagnostics": diagnostics,
     }
 
 
 # ── ROUTES ────────────────────────────────────────────────────────────────────
+
+@app.after_request
+def add_security_headers(response: Any) -> Any:
+    """Attach a CSP header compatible with the current inline single-file UI."""
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "connect-src 'self'; "
+        "img-src 'self' data:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return response
+
 
 @app.route("/analyze-audio", methods=["POST"])
 def analyze_audio() -> tuple[Any, int]:
@@ -574,11 +736,17 @@ def analyze_audio() -> tuple[Any, int]:
 
     upload = request.files["file"]
 
-    # Validate extension against allowlist before touching the filesystem
-    raw_suffix = os.path.splitext(upload.filename or "")[1].lower()
-    if raw_suffix not in ALLOWED_AUDIO_EXTENSIONS:
+    # Validate extension/MIME against allowlists before touching the filesystem.
+    raw_suffix = _validated_audio_suffix(upload.filename, upload.content_type)
+    if raw_suffix is None:
+        attempted_suffix = os.path.splitext(upload.filename or "")[1].lower()
+        logger.info(
+            "Rejected upload filename=%r content_type=%r",
+            upload.filename,
+            upload.content_type,
+        )
         return jsonify({
-            "error": f"Unsupported file type '{raw_suffix or '(none)'}'. "
+            "error": f"Unsupported file type '{attempted_suffix or upload.content_type or '(none)'}'. "
                      f"Allowed: {', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}"
         }), 415
 
@@ -597,8 +765,8 @@ def analyze_audio() -> tuple[Any, int]:
         with tempfile.NamedTemporaryFile(suffix=raw_suffix, delete=False) as tmp:
             tmp_path = tmp.name
             upload.save(tmp_path)
-        feat = _extract_audio_features(tmp_path)
-        return jsonify({"features": feat}), 200
+        analysis = _extract_audio_features(tmp_path)
+        return jsonify(analysis), 200
     except Exception:
         logger.exception("Audio analysis failed for upload '%s'", upload.filename)
         return jsonify({"error": "Audio analysis failed. Check that the file is a valid audio format."}), 400
@@ -616,14 +784,32 @@ def index() -> Any:
 def meta() -> Any:
     """Send feature metadata to the frontend."""
     response: dict[str, Any] = {
-        "features":         features,
-        "slider_features":  slider_features,
+        "features":         upload_features,
+        "slider_features":  upload_features,
+        "context_features": context_features,
+        "upload_features":  upload_features,
         "importance":       importance,
         "audio_importance": _audio_importance_normalized(),
         "ranges":           ranges,
-        "r2":               r2,
-        "mae":              mae,
+        "r2":               context_metrics["random_split_r2"],
+        "mae":              upload_metrics["random_split_mae"],
+        "context_metrics":  context_metrics,
+        "upload_metrics":   upload_metrics,
         "recommended":      recommended,
+        "schema_version":   schema_version,
+        "n_estimators":     n_estimators,
+        "model_families": {
+            "contextual_analysis": {
+                "uses_artist_context": True,
+                "features": context_features,
+                "metrics": context_metrics,
+            },
+            "upload_audio_only": {
+                "uses_artist_context": False,
+                "features": upload_features,
+                "metrics": upload_metrics,
+            },
+        },
     }
     if "r2_base" in payload:
         response["r2_base"] = payload["r2_base"]
@@ -631,6 +817,18 @@ def meta() -> Any:
         response["cv_r2_mean"] = payload["cv_r2_mean"]
         response["cv_r2_std"]  = payload["cv_r2_std"]
     return jsonify(response)
+
+
+@app.route("/health")
+def health() -> Any:
+    """Lightweight health check that does not import librosa."""
+    return jsonify({
+        "status": "ok",
+        "model_loaded": model is not None,
+        "schema_version": schema_version,
+        "feature_count": len(features),
+        "librosa_importable": importlib.util.find_spec("librosa") is not None,
+    })
 
 
 @app.route("/genres")
@@ -644,14 +842,26 @@ def predict() -> tuple[Any, int]:
     """Receive feature values, return predicted popularity score + insights."""
     data = request.json or {}
     try:
-        body   = {**data, "artist_avg_popularity": global_avg_pop}
-        values = [[body.get(f, ranges[f]["mean"]) for f in features]]
+        body = data.get("features", data)
+        supplied_confidence = data.get("feature_confidence", {})
+        row: dict[str, float] = {}
+        for f in upload_features:
+            if f in body:
+                row[f] = body[f]
+            else:
+                row[f] = ranges[f]["mean"]
 
-        raw_score = model.predict(values)[0]
+        values = pd.DataFrame([row], columns=upload_features)
 
-        span  = pred_max - pred_min if pred_max != pred_min else 1
-        score = (raw_score - pred_min) / span * 100
-        score = round(max(0.0, min(100.0, score)), 1)
+        raw_score = float(upload_model.predict(values)[0])
+        score = round(max(0.0, min(100.0, raw_score)), 1)
+
+        tree_values = values.to_numpy()
+        tree_predictions = [float(est.predict(tree_values)[0]) for est in upload_model.estimators_]
+        lo = round(max(0.0, min(100.0, float(pd.Series(tree_predictions).quantile(0.10)))), 1)
+        hi = round(max(0.0, min(100.0, float(pd.Series(tree_predictions).quantile(0.90)))), 1)
+        lo = min(lo, score)
+        hi = max(hi, score)
 
         genre          = data.get("genre", "").strip()
         genre_specific = genre_means.get(genre, {}) if genre else {}
@@ -659,7 +869,25 @@ def predict() -> tuple[Any, int]:
         imp_dict = _audio_importance_normalized()
 
         insights: dict[str, Any] = {}
-        for f in slider_features:
+        normalized_confidence: dict[str, Any] = {}
+        for f in upload_features:
+            raw_conf = supplied_confidence.get(f, {"score": 0.5, "label": "Medium"})
+            if isinstance(raw_conf, dict):
+                conf_score = float(raw_conf.get("score", 0.5))
+                conf_label = raw_conf.get("label") or _confidence_label(conf_score)
+                conf_note = raw_conf.get("note", "")
+            else:
+                conf_score = 0.5
+                conf_label = str(raw_conf)
+                conf_note = ""
+            normalized_confidence[f] = {
+                "score": round(max(0.0, min(1.0, conf_score)), 3),
+                "label": conf_label,
+                "note": conf_note,
+            }
+
+        insights: dict[str, Any] = {}
+        for f in upload_features:
             user_val = body.get(f, ranges[f]["mean"])
             avg      = genre_specific.get(f, ranges[f]["mean"])
             diff     = user_val - avg
@@ -675,9 +903,23 @@ def predict() -> tuple[Any, int]:
                 "avg":        round(avg, 3),
                 "direction":  direction,
                 "importance": round(imp_dict.get(f, 0), 3),
+                "confidence": normalized_confidence[f],
             }
 
-        return jsonify({"score": score, "insights": insights}), 200
+        return jsonify({
+            "score": score,
+            "score_interval": [lo, hi],
+            "model_used": "upload_audio_only",
+            "features": row,
+            "feature_confidence": normalized_confidence,
+            "feature_extraction_confidence": _overall_feature_confidence(normalized_confidence),
+            "insights": insights,
+            "prediction_context": {
+                "uses_artist_context": False,
+                "uses_audio_only_input": True,
+                "defaulted_features": [],
+            },
+        }), 200
 
     except Exception:
         logger.exception("Prediction failed")

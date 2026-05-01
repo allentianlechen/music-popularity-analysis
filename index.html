@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com; script-src 'self' 'unsafe-inline'">
-<title>Song Popularity Predictor — Music Analytics</title>
+<title>Audio Popularity Signal — Music Analytics</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Azeret+Mono:wght@300;400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1179,17 +1178,17 @@
 
   <div class="hero-content">
     <div class="hero-eyebrow">Music Analytics Lab</div>
-    <h1>Will Your Song<br><em>Hit or Miss?</em></h1>
+    <h1>Audio Popularity<br><em>Signal</em></h1>
     <p class="hero-desc">
       A <strong>Random Forest model</strong> trained on <strong>90,000 Spotify tracks</strong>
-      reveals which audio features drive popularity. Upload your track and the
-      model scores it instantly.
+      estimates appeal from sound alone. Upload your track to see how its audio features
+      compare with the dataset while artist and release context stay unknown.
     </p>
     <div class="steps-paths">
       <div class="steps-path">
         <div class="step"><span class="step-num">01</span> Upload your track</div>
         <div class="step"><span class="step-num">02</span> Audio features extracted</div>
-        <div class="step"><span class="step-num">03</span> See your popularity score</div>
+        <div class="step"><span class="step-num">03</span> See the audio signal</div>
       </div>
     </div>
   </div>
@@ -1198,7 +1197,7 @@
 <!-- ── AUDIO UPLOAD SECTION ── -->
 <section class="upload-section">
   <div class="upload-section-inner">
-    <div class="upload-title">Upload Your Track for Instant Analysis</div>
+    <div class="upload-title">Upload Your Track for Audio-Based Analysis</div>
     <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
          aria-label="Upload an audio file for analysis">
       <label for="audio-file-input" class="sr-only">Upload audio file</label>
@@ -1222,17 +1221,17 @@
   <!-- Mobile-only sticky score bar -->
   <div class="score-sticky-mobile" id="score-sticky-mobile" aria-live="polite">
     <div>
-      <div class="score-mini-label">Score</div>
+      <div class="score-mini-label">Audio-Only Signal</div>
       <div class="score-mini-num" id="score-mini-num">—</div>
     </div>
-    <div class="score-mini-verdict" id="score-mini-verdict">Upload a track to predict</div>
+    <div class="score-mini-verdict" id="score-mini-verdict">Upload a track to estimate appeal from sound</div>
   </div>
 
   <!-- Results (revealed after audio upload + predict) -->
   <div class="result-panel" id="result-panel" style="display:none;">
 
     <div class="score-card" id="score-card" aria-live="polite">
-      <div class="score-label">Predicted Popularity Score</div>
+      <div class="score-label">Audio-Only Popularity Signal</div>
 
       <div class="gauge-wrapper">
         <svg class="gauge-svg" viewBox="0 0 160 160">
@@ -1256,7 +1255,7 @@
       </div>
 
       <div class="score-verdict" id="score-verdict">
-        Upload a track to get a prediction
+        Upload a track to estimate appeal from sound only
       </div>
 
       <!-- Legacy compat -->
@@ -1327,11 +1326,7 @@
     danceability:     "How suitable the track is for dancing (rhythm, beat strength)",
     energy:           "Perceptual intensity and activity — fast, loud, noisy = high energy",
     loudness:         "Overall loudness in decibels (typically −60 to 0 dB)",
-    speechiness:      "Presence of spoken words — rap is high, classical is low",
     acousticness:     "Confidence the track is acoustic (unplugged / no electronics)",
-    instrumentalness: "Predicts whether a track has no vocals",
-    liveness:         "Detects audience presence — higher = more likely a live recording",
-    valence:          "Musical positiveness — happy/euphoric = high, sad/angry = low",
     tempo:            "Estimated beats per minute (BPM)",
   };
 
@@ -1339,6 +1334,8 @@
   let debounceTimer = null;
   let recommendedValues = null;
   let uploadedFeatures = null;   // set when audio upload completes; null = no upload yet
+  let uploadedFeatureConfidence = null;
+  let uploadedDiagnostics = null;
 
   async function loadMeta() {
     try {
@@ -1355,8 +1352,8 @@
         : "";
       infoEl.innerHTML = `
         <div class="stat-item"><span class="stat-key">Model</span><span class="stat-val">Random Forest</span></div>
-        <div class="stat-item"><span class="stat-key">Trees</span><span class="stat-val">100</span></div>
-        <div class="stat-item"><span class="stat-key">R² Score</span><span class="stat-val">${meta.r2}</span></div>
+        <div class="stat-item"><span class="stat-key">Trees</span><span class="stat-val">${meta.n_estimators || '—'}</span></div>
+        <div class="stat-item"><span class="stat-key">Context Model R²</span><span class="stat-val">${meta.context_metrics?.random_split_r2 ?? meta.r2}</span></div>
         <div class="stat-item"><span class="stat-key">Mean Error</span><span class="stat-val">±${meta.mae} pts</span></div>
         ${baseStr}
         <div class="stat-item" style="grid-column:span 2">
@@ -1372,14 +1369,13 @@
       // Accuracy narrative card (Task 3.1)
       const accEl = document.getElementById("accuracy-info");
       if (accEl) {
-        const r2Pct  = Math.round(meta.r2 * 100);
         const cvLine = (meta.cv_r2_mean !== undefined)
           ? `<br>Cross-validation R²: ${meta.cv_r2_mean} ± ${meta.cv_r2_std} (5-fold).`
           : "";
         accEl.innerHTML =
-          `<strong>Model accuracy:</strong> R² = ${meta.r2}${cvLine}<br>` +
-          `The ~${100 - r2Pct}% unexplained variance comes from playlist placement, ` +
-          `release timing, and marketing — factors this tool cannot measure.<br>` +
+          `<strong>Model accuracy:</strong> context model R² = ${meta.context_metrics?.random_split_r2 ?? meta.r2}; uploaded-audio signal R² = ${meta.upload_metrics?.random_split_r2 ?? meta.r2_base ?? 'n/a'}.${cvLine}<br>` +
+          `The full model includes historical artist popularity, which uploaded audio cannot provide. ` +
+          `This score uses only audio features extracted from your upload. Artist popularity, release timing, playlists, and marketing are not included.<br>` +
           `Mean prediction error: ±${meta.mae} popularity points.`;
         accEl.classList.add("is-visible");
       }
@@ -1402,8 +1398,7 @@
     const list = document.getElementById('rec-profile-list');
     if (!card || !list || !meta.recommended) return;
     const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
+      ["danceability","energy","loudness","acousticness","tempo"];
     list.innerHTML = sliderFeats.map(feat => {
       const rec = meta.recommended[feat];
       if (rec === undefined) return '';
@@ -1454,8 +1449,7 @@
     if (!meta) return;
 
     const sliderFeats = meta.slider_features ||
-      ["danceability","energy","loudness","speechiness","acousticness",
-       "instrumentalness","liveness","valence","tempo"];
+      ["danceability","energy","loudness","acousticness","tempo"];
 
     const body = {};
 
@@ -1466,22 +1460,16 @@
         : (meta.ranges[feat] ? meta.ranges[feat].mean : 0);
     });
 
-    // Non-slider features — use dataset mean (artist_avg_popularity always uses global mean)
-    if (meta.features) {
-      meta.features.forEach(feat => {
-        if (!(feat in body) && feat !== "artist_avg_popularity") {
-          body[feat] = meta.ranges[feat] ? meta.ranges[feat].mean : 0;
-        }
-      });
-    }
-
     // Genre select removed (was inside hidden sliders panel) — insights use dataset mean
 
     try {
       const res  = await fetch("/predict", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body:    JSON.stringify({
+          features: body,
+          feature_confidence: uploadedFeatureConfidence || {},
+        }),
       });
       const data = await res.json();
       if (data.error) {
@@ -1511,7 +1499,11 @@
 
       // Tier
       const tier = updateTiers(scoreInt);
-      verdictEl.textContent = tier ? tier.label : "—";
+      const interval = Array.isArray(data.score_interval)
+        ? `Estimated range: ${Math.round(data.score_interval[0])}-${Math.round(data.score_interval[1])}`
+        : "Estimated range unavailable";
+      const confidence = data.feature_extraction_confidence || "Medium";
+      verdictEl.textContent = `${interval}. Feature extraction confidence: ${confidence}.`;
       scoreCard.className   = scoreInt >= 80 ? "score-card is-hit" : "score-card";
 
       // Tint the score number on high scores
@@ -1537,7 +1529,7 @@
       const miniNum     = document.getElementById('score-mini-num');
       const miniVerdict = document.getElementById('score-mini-verdict');
       if (miniNum)     miniNum.textContent     = scoreInt;
-      if (miniVerdict) miniVerdict.textContent = tier ? tier.label : '—';
+      if (miniVerdict) miniVerdict.textContent = `${interval}; confidence ${confidence}`;
 
       // Insights with mini comparison bars
       const insightsCard = document.getElementById("insights-card");
@@ -1567,6 +1559,7 @@
               <div style="display:flex;flex-direction:column;gap:4px;">
                 <span class="insight-feat">${escapeHtml(feat)}</span>
                 <span class="insight-desc">${escapeHtml(DESCRIPTIONS[feat] || '')}</span>
+                <span class="insight-desc">Confidence: ${escapeHtml(info.confidence?.label || 'Medium')}</span>
               </div>
               <span class="insight-tag ${tagClass}">${escapeHtml(info.direction)}</span>
             </div>
@@ -1604,6 +1597,8 @@
   function clearUpload() {
     document.getElementById("upload-error").classList.remove("is-visible");
     uploadedFeatures = null;
+    uploadedFeatureConfidence = null;
+    uploadedDiagnostics = null;
     const rp = document.getElementById('result-panel');
     if (rp) rp.style.display = 'none';
   }
@@ -1622,7 +1617,7 @@
     if (!sorted.length) return;
     const maxImp = sorted[0][1];
     chartEl.innerHTML =
-      `<div class="imp-title">Feature Importance</div>` +
+      `<div class="imp-title">Audio-Only Feature Importance</div>` +
       sorted.map(([feat, imp]) =>
         `<div class="imp-row">
           <span class="imp-feat-name">${escapeHtml(feat.replace(/_/g, " "))}</span>
@@ -1677,6 +1672,8 @@
           return;
         }
         uploadedFeatures = data.features;
+        uploadedFeatureConfidence = data.feature_confidence || {};
+        uploadedDiagnostics = data.diagnostics || {};
         // Feature cards removed — results panel provides the full breakdown
         await predict();
         const rp = document.getElementById('result-panel');
