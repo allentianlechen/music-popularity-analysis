@@ -188,6 +188,63 @@ schema_version   = payload["schema_version"]
 n_estimators     = payload["n_estimators"]
 # classifier is intentionally not extracted — tier is determined client-side
 
+LATEST_RESEARCH_BENCHMARK: dict[str, Any] = {
+    "source": "popularity_random_forest_research.ipynb",
+    "summary": (
+        "Latest held-out research run: a full-feature Random Forest using the "
+        "Kaggle audio variables plus one-hot genre indicators performed best. "
+        "The live upload score remains audio-only because uploads do not provide "
+        "genre, artist, release, playlist, or marketing context."
+    ),
+    "best_model": "full-feature Random Forest",
+    "best_model_note": "Uses Kaggle audio variables plus genre indicators.",
+    "filtered_feature_count": 44,
+    "full_feature_count": 128,
+    "metrics": {
+        "test_r2": 0.476,
+        "test_mae": 10.03,
+        "test_rmse": 14.81,
+        "within_10_points": 0.652,
+        "within_20_points": 0.862,
+    },
+    "comparison": [
+        {
+            "model": "full-feature Random Forest",
+            "test_r2": 0.476,
+            "test_mae": 10.03,
+            "within_10_points": 0.652,
+        },
+        {
+            "model": "filtered kNN",
+            "test_r2": 0.375,
+            "test_mae": 11.47,
+            "within_10_points": 0.574,
+        },
+        {
+            "model": "filtered Random Forest",
+            "test_r2": 0.333,
+            "test_mae": 12.04,
+            "within_10_points": 0.548,
+        },
+        {
+            "model": "mean baseline",
+            "test_r2": 0.0,
+            "test_mae": 17.11,
+            "within_10_points": 0.319,
+        },
+    ],
+    "top_features": [
+        "speechiness",
+        "acousticness",
+        "loudness",
+        "duration_min",
+        "danceability",
+        "valence",
+        "tempo",
+        "energy",
+    ],
+}
+
 
 def _audio_importance_normalized() -> dict[str, float]:
     """Return audio_importance for slider_features only, renormalized to sum to 1.0."""
@@ -798,6 +855,7 @@ def meta() -> Any:
         "recommended":      recommended,
         "schema_version":   schema_version,
         "n_estimators":     n_estimators,
+        "latest_research":  LATEST_RESEARCH_BENCHMARK,
         "model_families": {
             "contextual_analysis": {
                 "uses_artist_context": True,

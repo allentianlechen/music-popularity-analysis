@@ -658,6 +658,100 @@
     color: var(--text);
     font-weight: 500;
   }
+  .research-benchmark {
+    display: none;
+    background: linear-gradient(135deg, rgba(200,241,53,0.08), rgba(124,58,237,0.08));
+    border: 1px solid rgba(200,241,53,0.18);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-top: 16px;
+  }
+  .research-benchmark.is-visible { display: block; }
+  .research-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+  .research-label {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 7px;
+  }
+  .research-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+  .research-note {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+    max-width: 480px;
+  }
+  .research-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .research-metric {
+    background: rgba(8,8,16,0.42);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .research-metric-key {
+    display: block;
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .research-metric-val {
+    font-family: 'Azeret Mono', monospace;
+    font-size: 15px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .research-compare {
+    display: grid;
+    gap: 7px;
+    margin-top: 12px;
+  }
+  .research-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.3fr) 1fr 1fr 1fr;
+    gap: 10px;
+    align-items: center;
+    font-family: 'Azeret Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .research-row.is-header {
+    color: var(--text);
+    opacity: 0.75;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .research-model-name { color: var(--text); }
+  .research-best .research-model-name { color: var(--accent); }
+  .research-source {
+    color: var(--muted);
+    font-family: 'Azeret Mono', monospace;
+    font-size: 10px;
+    margin-top: 12px;
+    opacity: 0.65;
+  }
 
   /* ── LOADING ── */
   .loading {
@@ -1166,6 +1260,9 @@
   @media (max-width: 960px) {
     .upload-section { padding: 20px 24px; }
     .feature-cards-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .research-head { flex-direction: column; }
+    .research-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .research-row { grid-template-columns: 1fr 64px 64px 76px; }
   }
 </style>
 </head>
@@ -1180,9 +1277,9 @@
     <div class="hero-eyebrow">Music Analytics Lab</div>
     <h1>Audio Popularity<br><em>Signal</em></h1>
     <p class="hero-desc">
-      A <strong>Random Forest model</strong> trained on <strong>90,000 Spotify tracks</strong>
-      estimates appeal from sound alone. Upload your track to see how its audio features
-      compare with the dataset while artist and release context stay unknown.
+      A <strong>Random Forest research benchmark</strong> now reaches <strong>R² 0.476</strong>
+      on held-out Spotify tracks when full Kaggle features are available. Upload your track
+      to estimate its audio-only signal while artist and release context stay unknown.
     </p>
     <div class="steps-paths">
       <div class="steps-path">
@@ -1281,6 +1378,7 @@
     <div class="edu-section">
       <div class="edu-section-title">About the Model &amp; Dataset</div>
       <div class="model-info" id="model-info"></div>
+      <div class="research-benchmark" id="research-benchmark"></div>
       <div class="accuracy-info" id="accuracy-info"></div>
       <div class="importance-chart" id="importance-chart"></div>
     </div>
@@ -1365,6 +1463,8 @@
           <span class="stat-val">Signal processing (librosa) — no ML models</span>
         </div>
       `;
+
+      renderResearchBenchmark(meta.latest_research);
 
       // Accuracy narrative card (Task 3.1)
       const accEl = document.getElementById("accuracy-info");
@@ -1628,6 +1728,60 @@
         </div>`
       ).join("");
     chartEl.classList.add("is-visible");
+  }
+
+  function renderResearchBenchmark(research) {
+    const el = document.getElementById("research-benchmark");
+    if (!el || !research || !research.metrics) return;
+
+    const metrics = research.metrics;
+    const pct = value => `${Math.round(Number(value || 0) * 100)}%`;
+    const comparisonRows = (research.comparison || []).map((row, idx) => `
+      <div class="research-row ${idx === 0 ? 'research-best' : ''}">
+        <span class="research-model-name">${escapeHtml(row.model)}</span>
+        <span>${Number(row.test_r2).toFixed(3)}</span>
+        <span>${Number(row.test_mae).toFixed(2)}</span>
+        <span>${pct(row.within_10_points)}</span>
+      </div>
+    `).join("");
+
+    el.innerHTML = `
+      <div class="research-head">
+        <div>
+          <div class="research-label">Latest research benchmark</div>
+          <div class="research-title">${escapeHtml(research.best_model)}</div>
+        </div>
+        <div class="research-note">${escapeHtml(research.summary)}</div>
+      </div>
+      <div class="research-metrics">
+        <div class="research-metric">
+          <span class="research-metric-key">Test R²</span>
+          <span class="research-metric-val">${Number(metrics.test_r2).toFixed(3)}</span>
+        </div>
+        <div class="research-metric">
+          <span class="research-metric-key">MAE</span>
+          <span class="research-metric-val">${Number(metrics.test_mae).toFixed(2)} pts</span>
+        </div>
+        <div class="research-metric">
+          <span class="research-metric-key">Within 10</span>
+          <span class="research-metric-val">${pct(metrics.within_10_points)}</span>
+        </div>
+        <div class="research-metric">
+          <span class="research-metric-key">Features</span>
+          <span class="research-metric-val">${research.full_feature_count || '—'}</span>
+        </div>
+      </div>
+      <div class="research-compare">
+        <div class="research-row is-header">
+          <span>Model</span><span>R²</span><span>MAE</span><span>±10 pts</span>
+        </div>
+        ${comparisonRows}
+      </div>
+      <div class="research-source">
+        Source: ${escapeHtml(research.source || 'research notebook')}. Live uploads still use the audio-only model because full Kaggle context is unavailable.
+      </div>
+    `;
+    el.classList.add("is-visible");
   }
 
   // ── AUDIO UPLOAD ──
