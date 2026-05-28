@@ -10,6 +10,7 @@ Then open: http://127.0.0.1:8080
 import hashlib
 import hmac
 import importlib.util
+import json
 import logging
 import os
 import sys
@@ -17,8 +18,6 @@ import tempfile
 from typing import Any, Optional
 
 from flask import Flask, jsonify, request, send_from_directory
-from joblib import load as joblib_load
-import pandas as pd
 
 # Lazy-load librosa (and numpy/scipy) only when audio analysis is requested.
 # This keeps startup RAM under Render's 512 MB free-tier limit.
@@ -30,14 +29,22 @@ soundfile: Any = None
 soxr: Any = None
 
 
+def _configure_numba_runtime() -> None:
+    """Keep numba's lazy compilation cache in a writable, disposable location."""
+    os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba-cache"))
+    os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+
+
+_configure_numba_runtime()
+
+
 def _ensure_librosa() -> bool:
     """Import librosa on first use. Returns True if available."""
     global LIBROSA_AVAILABLE, librosa, np, median_filter, soundfile, soxr  # noqa: PLW0603
     if LIBROSA_AVAILABLE:
         return True
     try:
-        # Disable numba JIT at runtime to avoid OOM from compilation on 512 MB
-        os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+        _configure_numba_runtime()
         import librosa as _librosa
         import numpy as _np
         import soundfile as _sf
@@ -114,13 +121,15 @@ _MINOR_PROFILE: tuple[float, ...] = (
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = UPLOAD_MAX_BYTES  # 413 before route handler
 
-# ── LOAD MODEL ────────────────────────────────────────────────────────────────
-REQUIRED_MODEL_KEYS: frozenset[str] = frozenset({
-    "context_model",
-    "upload_model",
+# ── LOAD LIGHTWEIGHT MODEL METADATA ───────────────────────────────────────────
+MODEL_PATH: str = "model.pkl"
+MODEL_METADATA_PATH: str = "model_metadata.json"
+
+REQUIRED_METADATA_KEYS: frozenset[str] = frozenset({
     "context_features",
     "upload_features",
     "importance",
+    "audio_importance",
     "ranges",
     "context_metrics",
     "upload_metrics",
@@ -128,9 +137,38 @@ REQUIRED_MODEL_KEYS: frozenset[str] = frozenset({
     "n_estimators",
 })
 
+REQUIRED_MODEL_KEYS: frozenset[str] = REQUIRED_METADATA_KEYS | frozenset({
+    "context_model",
+    "upload_model",
+})
 
-def _load_model(path: str = "model.pkl") -> dict[str, Any]:
+
+def _load_model_metadata(path: str = MODEL_METADATA_PATH) -> dict[str, Any]:
+    """Load model metadata without unpickling sklearn objects."""
+    with open(path, encoding="utf-8") as f:
+        model_metadata = json.load(f)
+    _validate_model_metadata(model_metadata)
+    return model_metadata
+
+
+def _validate_model_metadata(model_metadata: dict[str, Any]) -> None:
+    """Validate JSON metadata has the fields the app and UI depend on."""
+    missing = sorted(REQUIRED_METADATA_KEYS - set(model_metadata.keys()))
+    if missing:
+        raise KeyError(f"{MODEL_METADATA_PATH} missing required key(s): {', '.join(missing)}")
+    if model_metadata["schema_version"] != 3:
+        raise KeyError(
+            f"{MODEL_METADATA_PATH} schema_version must be 3, got {model_metadata['schema_version']!r}"
+        )
+    missing_ranges = sorted(set(model_metadata["upload_features"]) - set(model_metadata["ranges"].keys()))
+    if missing_ranges:
+        raise KeyError(f"{MODEL_METADATA_PATH} ranges missing feature(s): {', '.join(missing_ranges)}")
+
+
+def _load_model(path: str = MODEL_PATH) -> dict[str, Any]:
     """Load model.pkl via joblib, optionally verifying SHA-256."""
+    from joblib import load as joblib_load
+
     expected_hash = os.environ.get("MODEL_PKL_SHA256")
     if expected_hash:
         with open(path, "rb") as f:
@@ -155,37 +193,53 @@ def _validate_model_payload(model_payload: dict[str, Any]) -> None:
         raise KeyError(f"model.pkl ranges missing feature(s): {', '.join(missing_ranges)}")
 
 
+def _ensure_model_loaded() -> Any:
+    """Load the Random Forest model only when prediction actually needs it."""
+    global payload, context_model, upload_model, model  # noqa: PLW0603
+    if upload_model is not None:
+        return upload_model
+
+    loaded_payload = _load_model()
+    _validate_model_payload(loaded_payload)
+    payload = loaded_payload
+    context_model = loaded_payload["context_model"]
+    upload_model = loaded_payload["upload_model"]
+    model = upload_model  # backward-compatible alias for tests/health
+    logger.info("model.pkl loaded on first prediction request")
+    return upload_model
+
+
 try:
-    payload = _load_model()
-    _validate_model_payload(payload)
+    metadata = _load_model_metadata()
 except FileNotFoundError:
-    logger.error("model.pkl not found. Run 'python3 analyze.py' first.")
+    logger.error("%s not found. Run 'python3 analyze.py' first.", MODEL_METADATA_PATH)
     sys.exit(1)
 except KeyError as exc:
-    logger.error("Invalid model.pkl metadata: %s", exc)
+    logger.error("Invalid model metadata: %s", exc)
     sys.exit(1)
 
-context_model    = payload["context_model"]
-upload_model     = payload["upload_model"]
-model            = upload_model  # backward-compatible alias for tests/health
-context_features = payload["context_features"]
-upload_features  = payload["upload_features"]
+payload: Optional[dict[str, Any]] = None
+context_model: Any = None
+upload_model: Any = None
+model: Any = None  # backward-compatible alias for tests/health after lazy load
+context_features = metadata["context_features"]
+upload_features  = metadata["upload_features"]
 features         = upload_features
 slider_features  = upload_features
-importance       = payload["importance"]
-audio_importance = payload.get("audio_importance", importance)
-ranges           = payload["ranges"]
-context_metrics  = payload["context_metrics"]
-upload_metrics   = payload["upload_metrics"]
+importance       = metadata["importance"]
+audio_importance = metadata.get("audio_importance", importance)
+ranges           = metadata["ranges"]
+context_metrics  = metadata["context_metrics"]
+upload_metrics   = metadata["upload_metrics"]
 r2               = context_metrics["random_split_r2"]
 mae              = upload_metrics["random_split_mae"]
-pred_min         = payload.get("pred_min", 0)
-pred_max         = payload.get("pred_max", 100)
-recommended      = payload.get("recommended", {})
-global_avg_pop   = payload.get("global_avg_popularity", 0)
-genre_means      = payload.get("genre_means", {})
-schema_version   = payload["schema_version"]
-n_estimators     = payload["n_estimators"]
+pred_min         = metadata.get("pred_min", 0)
+pred_max         = metadata.get("pred_max", 100)
+recommended      = metadata.get("recommended", {})
+global_avg_pop   = metadata.get("global_avg_popularity", 0)
+genre_means      = metadata.get("genre_means", {})
+schema_version   = metadata["schema_version"]
+n_estimators     = metadata["n_estimators"]
 # classifier is intentionally not extracted — tier is determined client-side
 
 LATEST_RESEARCH_BENCHMARK: dict[str, Any] = {
@@ -869,11 +923,11 @@ def meta() -> Any:
             },
         },
     }
-    if "r2_base" in payload:
-        response["r2_base"] = payload["r2_base"]
-    if "cv_r2_mean" in payload:
-        response["cv_r2_mean"] = payload["cv_r2_mean"]
-        response["cv_r2_std"]  = payload["cv_r2_std"]
+    if "r2_base" in metadata:
+        response["r2_base"] = metadata["r2_base"]
+    if "cv_r2_mean" in metadata:
+        response["cv_r2_mean"] = metadata["cv_r2_mean"]
+        response["cv_r2_std"]  = metadata["cv_r2_std"]
     return jsonify(response)
 
 
@@ -883,6 +937,8 @@ def health() -> Any:
     return jsonify({
         "status": "ok",
         "model_loaded": model is not None,
+        "metadata_loaded": True,
+        "lazy_model_loading": True,
         "schema_version": schema_version,
         "feature_count": len(features),
         "librosa_importable": importlib.util.find_spec("librosa") is not None,
@@ -900,6 +956,9 @@ def predict() -> tuple[Any, int]:
     """Receive feature values, return predicted popularity score + insights."""
     data = request.json or {}
     try:
+        active_upload_model = _ensure_model_loaded()
+        import pandas as pd
+
         body = data.get("features", data)
         supplied_confidence = data.get("feature_confidence", {})
         row: dict[str, float] = {}
@@ -911,11 +970,11 @@ def predict() -> tuple[Any, int]:
 
         values = pd.DataFrame([row], columns=upload_features)
 
-        raw_score = float(upload_model.predict(values)[0])
+        raw_score = float(active_upload_model.predict(values)[0])
         score = round(max(0.0, min(100.0, raw_score)), 1)
 
         tree_values = values.to_numpy()
-        tree_predictions = [float(est.predict(tree_values)[0]) for est in upload_model.estimators_]
+        tree_predictions = [float(est.predict(tree_values)[0]) for est in active_upload_model.estimators_]
         lo = round(max(0.0, min(100.0, float(pd.Series(tree_predictions).quantile(0.10)))), 1)
         hi = round(max(0.0, min(100.0, float(pd.Series(tree_predictions).quantile(0.90)))), 1)
         lo = min(lo, score)

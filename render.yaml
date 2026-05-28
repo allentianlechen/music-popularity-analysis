@@ -2,8 +2,12 @@ services:
   - type: web
     name: music-popularity-analysis
     runtime: python
-    buildCommand: pip install -r requirements.txt && python3 -c "import librosa.core.audio; print('numba pre-compiled')" && python3 analyze.py
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn APP:app --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: NUMBA_CACHE_DIR
+        value: "/tmp/numba-cache"
+      - key: NUMBA_NUM_THREADS
+        value: "1"

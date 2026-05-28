@@ -62,7 +62,7 @@ class TestMeta:
     def test_model_metadata_consistency(self, meta_data):
         import APP
         assert meta_data["schema_version"] == 3
-        assert meta_data["n_estimators"] == APP.upload_model.n_estimators
+        assert meta_data["n_estimators"] == APP.n_estimators
         assert "r2_base" in meta_data
         assert meta_data["r2_base"] <= meta_data["r2"]
         assert meta_data["model_families"]["upload_audio_only"]["uses_artist_context"] is False
@@ -76,7 +76,9 @@ class TestHealth:
         assert res.status_code == 200
         data = res.get_json()
         assert data["status"] == "ok"
-        assert data["model_loaded"] is True
+        assert isinstance(data["model_loaded"], bool)
+        assert data["metadata_loaded"] is True
+        assert data["lazy_model_loading"] is True
         assert data["feature_count"] > 0
         assert data["schema_version"] == 3
         assert isinstance(data["librosa_importable"], bool)
@@ -556,15 +558,26 @@ class TestArtistAvgTransformer:
 # ── Startup metadata validation ───────────────────────────────────────────────
 
 class TestModelPayloadValidation:
-    def test_missing_required_model_key_fails_validation(self):
+    def test_missing_required_metadata_key_fails_validation(self):
         import APP
-        bad_payload = dict(APP.payload)
+        bad_payload = dict(APP.metadata)
         bad_payload.pop("schema_version", None)
         with pytest.raises(KeyError, match="schema_version"):
+            APP._validate_model_metadata(bad_payload)
+
+    def test_missing_required_model_key_fails_validation(self):
+        import APP
+        APP._ensure_model_loaded()
+        assert APP.payload is not None
+        bad_payload = dict(APP.payload)
+        bad_payload.pop("upload_model", None)
+        with pytest.raises(KeyError, match="upload_model"):
             APP._validate_model_payload(bad_payload)
 
     def test_schema_v3_models_present(self):
         import APP
+        APP._ensure_model_loaded()
+        assert APP.payload is not None
         APP._validate_model_payload(APP.payload)
         assert APP.payload["schema_version"] == 3
         assert APP.payload["context_model"] is not None

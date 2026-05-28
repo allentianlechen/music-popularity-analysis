@@ -5,6 +5,7 @@ Loads cleaned.csv, trains a Random Forest model, saves model.pkl
 Run: python3 analyze.py
 """
 
+import json
 import logging
 import numpy as np
 import pandas as pd
@@ -46,6 +47,41 @@ EXTRA_FEATURES: list[str] = [
 
 CONTEXT_BASE_FEATURES: list[str] = CONTEXT_AUDIO_FEATURES + EXTRA_FEATURES
 TARGET: str = "popularity"
+
+MODEL_METADATA_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "n_estimators",
+    "context_features",
+    "upload_features",
+    "features",
+    "slider_features",
+    "importance",
+    "audio_importance",
+    "ranges",
+    "context_metrics",
+    "upload_metrics",
+    "r2",
+    "mae",
+    "pred_min",
+    "pred_max",
+    "recommended",
+    "cv_r2_mean",
+    "cv_r2_std",
+    "r2_base",
+    "global_avg_popularity",
+    "genre_means",
+)
+
+
+def _json_ready(value):
+    """Convert numpy/pandas scalar containers into JSON-serializable values."""
+    if isinstance(value, dict):
+        return {str(k): _json_ready(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(v) for v in value]
+    if hasattr(value, "item"):
+        return _json_ready(value.item())
+    return value
 
 
 # ── ARTIST AVERAGE TRANSFORMER ───────────────────────────────────────────────
@@ -286,9 +322,18 @@ def train() -> None:
         "genre_means":            genre_means,
     }
 
+    metadata = {
+        key: _json_ready(payload[key])
+        for key in MODEL_METADATA_KEYS
+        if key in payload
+    }
+    with open("model_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, sort_keys=True)
+        f.write("\n")
+
     joblib_dump(payload, "model.pkl", compress=9)
 
-    logger.info("Saved model.pkl — ready to run: python3 APP.py")
+    logger.info("Saved model.pkl and model_metadata.json — ready to run: python3 APP.py")
 
 
 def _prewarm_numba() -> None:

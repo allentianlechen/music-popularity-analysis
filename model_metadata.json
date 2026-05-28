@@ -1,0 +1,2042 @@
+{
+  "audio_importance": {
+    "acousticness": 0.21070873494982897,
+    "danceability": 0.19159836685928272,
+    "energy": 0.18298346086356107,
+    "loudness": 0.20996333928758856,
+    "tempo": 0.20474609803973845
+  },
+  "context_features": [
+    "danceability",
+    "energy",
+    "loudness",
+    "speechiness",
+    "acousticness",
+    "instrumentalness",
+    "liveness",
+    "valence",
+    "tempo",
+    "key",
+    "mode",
+    "time_signature",
+    "explicit",
+    "duration_min",
+    "artist_avg_popularity"
+  ],
+  "context_metrics": {
+    "cv_r2_mean": 0.436,
+    "cv_r2_std": 0.008,
+    "random_split_mae": 9.7,
+    "random_split_r2": 0.445
+  },
+  "cv_r2_mean": 0.436,
+  "cv_r2_std": 0.008,
+  "features": [
+    "danceability",
+    "energy",
+    "loudness",
+    "acousticness",
+    "tempo"
+  ],
+  "genre_means": {
+    "acoustic": {
+      "acousticness": 0.568,
+      "danceability": 0.549,
+      "duration_min": 3.588,
+      "energy": 0.435,
+      "explicit": 0.053,
+      "key": 5.059,
+      "loudness": -9.361,
+      "mode": 0.819,
+      "tempo": 119.32,
+      "time_signature": 3.884
+    },
+    "afrobeat": {
+      "acousticness": 0.275,
+      "danceability": 0.668,
+      "duration_min": 4.154,
+      "energy": 0.701,
+      "explicit": 0.019,
+      "key": 5.537,
+      "loudness": -7.83,
+      "mode": 0.513,
+      "tempo": 119.007,
+      "time_signature": 3.943
+    },
+    "alt-rock": {
+      "acousticness": 0.12,
+      "danceability": 0.547,
+      "duration_min": 3.921,
+      "energy": 0.752,
+      "explicit": 0.052,
+      "key": 5.624,
+      "loudness": -6.31,
+      "mode": 0.636,
+      "tempo": 124.788,
+      "time_signature": 3.943
+    },
+    "alternative": {
+      "acousticness": 0.168,
+      "danceability": 0.581,
+      "duration_min": 3.534,
+      "energy": 0.692,
+      "explicit": 0.235,
+      "key": 5.274,
+      "loudness": -6.07,
+      "mode": 0.581,
+      "tempo": 119.253,
+      "time_signature": 3.952
+    },
+    "ambient": {
+      "acousticness": 0.794,
+      "danceability": 0.365,
+      "duration_min": 3.905,
+      "energy": 0.228,
+      "explicit": 0.005,
+      "key": 4.92,
+      "loudness": -18.927,
+      "mode": 0.612,
+      "tempo": 110.823,
+      "time_signature": 3.646
+    },
+    "anime": {
+      "acousticness": 0.284,
+      "danceability": 0.54,
+      "duration_min": 3.423,
+      "energy": 0.661,
+      "explicit": 0.057,
+      "key": 5.308,
+      "loudness": -8.28,
+      "mode": 0.49,
+      "tempo": 122.657,
+      "time_signature": 3.921
+    },
+    "black-metal": {
+      "acousticness": 0.029,
+      "danceability": 0.29,
+      "duration_min": 5.266,
+      "energy": 0.872,
+      "explicit": 0.128,
+      "key": 5.342,
+      "loudness": -6.645,
+      "mode": 0.585,
+      "tempo": 128.566,
+      "time_signature": 3.816
+    },
+    "bluegrass": {
+      "acousticness": 0.556,
+      "danceability": 0.536,
+      "duration_min": 3.683,
+      "energy": 0.533,
+      "explicit": 0.005,
+      "key": 5.512,
+      "loudness": -9.897,
+      "mode": 0.85,
+      "tempo": 126.821,
+      "time_signature": 3.909
+    },
+    "blues": {
+      "acousticness": 0.305,
+      "danceability": 0.583,
+      "duration_min": 3.93,
+      "energy": 0.598,
+      "explicit": 0.02,
+      "key": 5.427,
+      "loudness": -8.374,
+      "mode": 0.668,
+      "tempo": 118.952,
+      "time_signature": 3.896
+    },
+    "brazil": {
+      "acousticness": 0.354,
+      "danceability": 0.585,
+      "duration_min": 4.432,
+      "energy": 0.604,
+      "explicit": 0.12,
+      "key": 5.452,
+      "loudness": -7.701,
+      "mode": 0.664,
+      "tempo": 119.443,
+      "time_signature": 3.956
+    },
+    "breakbeat": {
+      "acousticness": 0.032,
+      "danceability": 0.648,
+      "duration_min": 5.295,
+      "energy": 0.852,
+      "explicit": 0.047,
+      "key": 5.625,
+      "loudness": -6.07,
+      "mode": 0.593,
+      "tempo": 132.51,
+      "time_signature": 3.988
+    },
+    "british": {
+      "acousticness": 0.435,
+      "danceability": 0.493,
+      "duration_min": 3.736,
+      "energy": 0.497,
+      "explicit": 0.045,
+      "key": 5.043,
+      "loudness": -10.809,
+      "mode": 0.652,
+      "tempo": 118.177,
+      "time_signature": 3.84
+    },
+    "cantopop": {
+      "acousticness": 0.53,
+      "danceability": 0.549,
+      "duration_min": 3.792,
+      "energy": 0.467,
+      "explicit": 0.002,
+      "key": 5.123,
+      "loudness": -9.621,
+      "mode": 0.769,
+      "tempo": 124.419,
+      "time_signature": 3.924
+    },
+    "chicago-house": {
+      "acousticness": 0.035,
+      "danceability": 0.767,
+      "duration_min": 6.125,
+      "energy": 0.733,
+      "explicit": 0.018,
+      "key": 5.831,
+      "loudness": -9.145,
+      "mode": 0.496,
+      "tempo": 123.816,
+      "time_signature": 3.988
+    },
+    "children": {
+      "acousticness": 0.498,
+      "danceability": 0.715,
+      "duration_min": 2.312,
+      "energy": 0.494,
+      "explicit": 0.0,
+      "key": 4.551,
+      "loudness": -9.435,
+      "mode": 0.866,
+      "tempo": 123.446,
+      "time_signature": 3.867
+    },
+    "chill": {
+      "acousticness": 0.515,
+      "danceability": 0.662,
+      "duration_min": 2.863,
+      "energy": 0.434,
+      "explicit": 0.169,
+      "key": 5.387,
+      "loudness": -10.145,
+      "mode": 0.602,
+      "tempo": 114.818,
+      "time_signature": 3.944
+    },
+    "classical": {
+      "acousticness": 0.922,
+      "danceability": 0.384,
+      "duration_min": 3.895,
+      "energy": 0.189,
+      "explicit": 0.0,
+      "key": 4.924,
+      "loudness": -20.217,
+      "mode": 0.751,
+      "tempo": 107.721,
+      "time_signature": 3.703
+    },
+    "club": {
+      "acousticness": 0.161,
+      "danceability": 0.603,
+      "duration_min": 3.431,
+      "energy": 0.723,
+      "explicit": 0.085,
+      "key": 5.159,
+      "loudness": -6.876,
+      "mode": 0.662,
+      "tempo": 123.492,
+      "time_signature": 3.943
+    },
+    "comedy": {
+      "acousticness": 0.727,
+      "danceability": 0.578,
+      "duration_min": 3.761,
+      "energy": 0.7,
+      "explicit": 0.658,
+      "key": 5.058,
+      "loudness": -10.451,
+      "mode": 0.719,
+      "tempo": 100.909,
+      "time_signature": 3.6
+    },
+    "country": {
+      "acousticness": 0.327,
+      "danceability": 0.554,
+      "duration_min": 3.363,
+      "energy": 0.594,
+      "explicit": 0.034,
+      "key": 5.477,
+      "loudness": -7.041,
+      "mode": 0.893,
+      "tempo": 124.009,
+      "time_signature": 3.881
+    },
+    "dance": {
+      "acousticness": 0.146,
+      "danceability": 0.694,
+      "duration_min": 3.34,
+      "energy": 0.7,
+      "explicit": 0.173,
+      "key": 5.765,
+      "loudness": -5.368,
+      "mode": 0.562,
+      "tempo": 121.962,
+      "time_signature": 3.988
+    },
+    "dancehall": {
+      "acousticness": 0.215,
+      "danceability": 0.735,
+      "duration_min": 3.35,
+      "energy": 0.693,
+      "explicit": 0.3,
+      "key": 5.364,
+      "loudness": -6.099,
+      "mode": 0.488,
+      "tempo": 114.276,
+      "time_signature": 4.075
+    },
+    "death-metal": {
+      "acousticness": 0.007,
+      "danceability": 0.367,
+      "duration_min": 4.107,
+      "energy": 0.931,
+      "explicit": 0.26,
+      "key": 5.282,
+      "loudness": -5.409,
+      "mode": 0.621,
+      "tempo": 124.001,
+      "time_signature": 3.883
+    },
+    "deep-house": {
+      "acousticness": 0.121,
+      "danceability": 0.709,
+      "duration_min": 3.591,
+      "energy": 0.729,
+      "explicit": 0.029,
+      "key": 5.712,
+      "loudness": -6.978,
+      "mode": 0.473,
+      "tempo": 119.649,
+      "time_signature": 3.986
+    },
+    "detroit-techno": {
+      "acousticness": 0.066,
+      "danceability": 0.722,
+      "duration_min": 6.203,
+      "energy": 0.708,
+      "explicit": 0.007,
+      "key": 5.806,
+      "loudness": -11.086,
+      "mode": 0.502,
+      "tempo": 126.483,
+      "time_signature": 3.987
+    },
+    "disco": {
+      "acousticness": 0.17,
+      "danceability": 0.686,
+      "duration_min": 4.083,
+      "energy": 0.723,
+      "explicit": 0.007,
+      "key": 5.393,
+      "loudness": -7.79,
+      "mode": 0.614,
+      "tempo": 122.353,
+      "time_signature": 3.971
+    },
+    "disney": {
+      "acousticness": 0.742,
+      "danceability": 0.468,
+      "duration_min": 2.568,
+      "energy": 0.305,
+      "explicit": 0.001,
+      "key": 4.436,
+      "loudness": -14.86,
+      "mode": 0.788,
+      "tempo": 112.065,
+      "time_signature": 3.801
+    },
+    "drum-and-bass": {
+      "acousticness": 0.026,
+      "danceability": 0.534,
+      "duration_min": 4.657,
+      "energy": 0.877,
+      "explicit": 0.027,
+      "key": 5.355,
+      "loudness": -4.156,
+      "mode": 0.473,
+      "tempo": 155.501,
+      "time_signature": 4.006
+    },
+    "dub": {
+      "acousticness": 0.126,
+      "danceability": 0.616,
+      "duration_min": 3.833,
+      "energy": 0.691,
+      "explicit": 0.087,
+      "key": 5.381,
+      "loudness": -6.503,
+      "mode": 0.563,
+      "tempo": 126.22,
+      "time_signature": 3.986
+    },
+    "dubstep": {
+      "acousticness": 0.118,
+      "danceability": 0.516,
+      "duration_min": 3.816,
+      "energy": 0.755,
+      "explicit": 0.082,
+      "key": 5.442,
+      "loudness": -5.123,
+      "mode": 0.591,
+      "tempo": 133.927,
+      "time_signature": 3.965
+    },
+    "edm": {
+      "acousticness": 0.116,
+      "danceability": 0.639,
+      "duration_min": 3.27,
+      "energy": 0.759,
+      "explicit": 0.115,
+      "key": 5.565,
+      "loudness": -5.188,
+      "mode": 0.553,
+      "tempo": 122.962,
+      "time_signature": 3.983
+    },
+    "electro": {
+      "acousticness": 0.291,
+      "danceability": 0.639,
+      "duration_min": 3.14,
+      "energy": 0.608,
+      "explicit": 0.176,
+      "key": 5.166,
+      "loudness": -6.695,
+      "mode": 0.652,
+      "tempo": 121.706,
+      "time_signature": 3.951
+    },
+    "electronic": {
+      "acousticness": 0.187,
+      "danceability": 0.653,
+      "duration_min": 3.797,
+      "energy": 0.691,
+      "explicit": 0.133,
+      "key": 5.343,
+      "loudness": -7.155,
+      "mode": 0.527,
+      "tempo": 123.451,
+      "time_signature": 3.957
+    },
+    "emo": {
+      "acousticness": 0.201,
+      "danceability": 0.62,
+      "duration_min": 3.074,
+      "energy": 0.655,
+      "explicit": 0.521,
+      "key": 5.31,
+      "loudness": -6.899,
+      "mode": 0.606,
+      "tempo": 125.457,
+      "time_signature": 3.955
+    },
+    "folk": {
+      "acousticness": 0.459,
+      "danceability": 0.559,
+      "duration_min": 4.596,
+      "energy": 0.571,
+      "explicit": 0.009,
+      "key": 5.202,
+      "loudness": -8.778,
+      "mode": 0.744,
+      "tempo": 118.84,
+      "time_signature": 3.733
+    },
+    "forro": {
+      "acousticness": 0.396,
+      "danceability": 0.652,
+      "duration_min": 3.174,
+      "energy": 0.792,
+      "explicit": 0.018,
+      "key": 5.282,
+      "loudness": -5.085,
+      "mode": 0.664,
+      "tempo": 140.132,
+      "time_signature": 3.988
+    },
+    "french": {
+      "acousticness": 0.345,
+      "danceability": 0.66,
+      "duration_min": 3.403,
+      "energy": 0.6,
+      "explicit": 0.242,
+      "key": 5.515,
+      "loudness": -8.576,
+      "mode": 0.473,
+      "tempo": 117.702,
+      "time_signature": 3.933
+    },
+    "funk": {
+      "acousticness": 0.32,
+      "danceability": 0.684,
+      "duration_min": 3.493,
+      "energy": 0.615,
+      "explicit": 0.338,
+      "key": 5.237,
+      "loudness": -6.54,
+      "mode": 0.561,
+      "tempo": 118.183,
+      "time_signature": 4.027
+    },
+    "garage": {
+      "acousticness": 0.163,
+      "danceability": 0.481,
+      "duration_min": 3.326,
+      "energy": 0.751,
+      "explicit": 0.104,
+      "key": 5.521,
+      "loudness": -6.522,
+      "mode": 0.681,
+      "tempo": 127.157,
+      "time_signature": 3.949
+    },
+    "german": {
+      "acousticness": 0.343,
+      "danceability": 0.543,
+      "duration_min": 3.459,
+      "energy": 0.551,
+      "explicit": 0.172,
+      "key": 5.289,
+      "loudness": -10.505,
+      "mode": 0.505,
+      "tempo": 118.249,
+      "time_signature": 3.9
+    },
+    "gospel": {
+      "acousticness": 0.38,
+      "danceability": 0.475,
+      "duration_min": 5.201,
+      "energy": 0.576,
+      "explicit": 0.0,
+      "key": 5.21,
+      "loudness": -7.2,
+      "mode": 0.833,
+      "tempo": 125.92,
+      "time_signature": 3.925
+    },
+    "goth": {
+      "acousticness": 0.173,
+      "danceability": 0.485,
+      "duration_min": 4.15,
+      "energy": 0.734,
+      "explicit": 0.065,
+      "key": 5.221,
+      "loudness": -7.173,
+      "mode": 0.549,
+      "tempo": 124.414,
+      "time_signature": 3.942
+    },
+    "grindcore": {
+      "acousticness": 0.009,
+      "danceability": 0.272,
+      "duration_min": 2.219,
+      "energy": 0.925,
+      "explicit": 0.152,
+      "key": 5.216,
+      "loudness": -6.232,
+      "mode": 0.631,
+      "tempo": 119.314,
+      "time_signature": 3.798
+    },
+    "groove": {
+      "acousticness": 0.158,
+      "danceability": 0.585,
+      "duration_min": 4.31,
+      "energy": 0.735,
+      "explicit": 0.093,
+      "key": 5.587,
+      "loudness": -6.635,
+      "mode": 0.539,
+      "tempo": 123.113,
+      "time_signature": 3.943
+    },
+    "grunge": {
+      "acousticness": 0.051,
+      "danceability": 0.456,
+      "duration_min": 3.946,
+      "energy": 0.801,
+      "explicit": 0.075,
+      "key": 5.139,
+      "loudness": -5.699,
+      "mode": 0.676,
+      "tempo": 129.65,
+      "time_signature": 3.921
+    },
+    "guitar": {
+      "acousticness": 0.771,
+      "danceability": 0.546,
+      "duration_min": 3.583,
+      "energy": 0.328,
+      "explicit": 0.002,
+      "key": 5.104,
+      "loudness": -13.796,
+      "mode": 0.686,
+      "tempo": 112.272,
+      "time_signature": 3.782
+    },
+    "happy": {
+      "acousticness": 0.057,
+      "danceability": 0.55,
+      "duration_min": 4.093,
+      "energy": 0.914,
+      "explicit": 0.13,
+      "key": 5.742,
+      "loudness": -5.436,
+      "mode": 0.566,
+      "tempo": 153.566,
+      "time_signature": 3.981
+    },
+    "hard-rock": {
+      "acousticness": 0.09,
+      "danceability": 0.483,
+      "duration_min": 4.231,
+      "energy": 0.787,
+      "explicit": 0.045,
+      "key": 5.469,
+      "loudness": -6.702,
+      "mode": 0.65,
+      "tempo": 125.488,
+      "time_signature": 3.963
+    },
+    "hardcore": {
+      "acousticness": 0.067,
+      "danceability": 0.553,
+      "duration_min": 3.507,
+      "energy": 0.836,
+      "explicit": 0.37,
+      "key": 5.558,
+      "loudness": -5.757,
+      "mode": 0.582,
+      "tempo": 122.787,
+      "time_signature": 3.97
+    },
+    "hardstyle": {
+      "acousticness": 0.051,
+      "danceability": 0.534,
+      "duration_min": 3.729,
+      "energy": 0.9,
+      "explicit": 0.104,
+      "key": 5.591,
+      "loudness": -4.298,
+      "mode": 0.464,
+      "tempo": 147.002,
+      "time_signature": 3.963
+    },
+    "heavy-metal": {
+      "acousticness": 0.015,
+      "danceability": 0.428,
+      "duration_min": 4.2,
+      "energy": 0.875,
+      "explicit": 0.084,
+      "key": 5.425,
+      "loudness": -5.734,
+      "mode": 0.583,
+      "tempo": 126.617,
+      "time_signature": 3.948
+    },
+    "hip-hop": {
+      "acousticness": 0.195,
+      "danceability": 0.738,
+      "duration_min": 3.377,
+      "energy": 0.674,
+      "explicit": 0.358,
+      "key": 5.514,
+      "loudness": -6.005,
+      "mode": 0.473,
+      "tempo": 117.243,
+      "time_signature": 3.952
+    },
+    "honky-tonk": {
+      "acousticness": 0.711,
+      "danceability": 0.572,
+      "duration_min": 2.704,
+      "energy": 0.367,
+      "explicit": 0.0,
+      "key": 5.076,
+      "loudness": -11.735,
+      "mode": 0.961,
+      "tempo": 116.587,
+      "time_signature": 3.817
+    },
+    "house": {
+      "acousticness": 0.102,
+      "danceability": 0.678,
+      "duration_min": 3.143,
+      "energy": 0.745,
+      "explicit": 0.112,
+      "key": 5.219,
+      "loudness": -5.427,
+      "mode": 0.534,
+      "tempo": 122.034,
+      "time_signature": 3.988
+    },
+    "idm": {
+      "acousticness": 0.378,
+      "danceability": 0.527,
+      "duration_min": 4.459,
+      "energy": 0.556,
+      "explicit": 0.014,
+      "key": 5.253,
+      "loudness": -12.417,
+      "mode": 0.575,
+      "tempo": 123.234,
+      "time_signature": 3.851
+    },
+    "indian": {
+      "acousticness": 0.491,
+      "danceability": 0.583,
+      "duration_min": 4.152,
+      "energy": 0.583,
+      "explicit": 0.023,
+      "key": 5.157,
+      "loudness": -8.78,
+      "mode": 0.667,
+      "tempo": 115.264,
+      "time_signature": 3.895
+    },
+    "indie": {
+      "acousticness": 0.381,
+      "danceability": 0.597,
+      "duration_min": 3.456,
+      "energy": 0.566,
+      "explicit": 0.112,
+      "key": 5.194,
+      "loudness": -8.021,
+      "mode": 0.708,
+      "tempo": 121.646,
+      "time_signature": 3.879
+    },
+    "indie-pop": {
+      "acousticness": 0.392,
+      "danceability": 0.603,
+      "duration_min": 3.411,
+      "energy": 0.548,
+      "explicit": 0.114,
+      "key": 5.584,
+      "loudness": -8.13,
+      "mode": 0.747,
+      "tempo": 119.167,
+      "time_signature": 3.904
+    },
+    "industrial": {
+      "acousticness": 0.039,
+      "danceability": 0.534,
+      "duration_min": 4.252,
+      "energy": 0.858,
+      "explicit": 0.236,
+      "key": 5.509,
+      "loudness": -6.134,
+      "mode": 0.639,
+      "tempo": 126.699,
+      "time_signature": 3.949
+    },
+    "iranian": {
+      "acousticness": 0.412,
+      "danceability": 0.3,
+      "duration_min": 5.326,
+      "energy": 0.545,
+      "explicit": 0.079,
+      "key": 5.134,
+      "loudness": -13.123,
+      "mode": 0.548,
+      "tempo": 114.618,
+      "time_signature": 3.725
+    },
+    "j-dance": {
+      "acousticness": 0.228,
+      "danceability": 0.678,
+      "duration_min": 3.246,
+      "energy": 0.705,
+      "explicit": 0.381,
+      "key": 5.197,
+      "loudness": -6.044,
+      "mode": 0.533,
+      "tempo": 115.048,
+      "time_signature": 4.067
+    },
+    "j-idol": {
+      "acousticness": 0.143,
+      "danceability": 0.546,
+      "duration_min": 4.272,
+      "energy": 0.875,
+      "explicit": 0.001,
+      "key": 5.032,
+      "loudness": -3.665,
+      "mode": 0.724,
+      "tempo": 136.414,
+      "time_signature": 3.98
+    },
+    "j-pop": {
+      "acousticness": 0.248,
+      "danceability": 0.573,
+      "duration_min": 3.971,
+      "energy": 0.715,
+      "explicit": 0.016,
+      "key": 5.44,
+      "loudness": -5.836,
+      "mode": 0.711,
+      "tempo": 126.037,
+      "time_signature": 3.945
+    },
+    "j-rock": {
+      "acousticness": 0.181,
+      "danceability": 0.518,
+      "duration_min": 4.039,
+      "energy": 0.752,
+      "explicit": 0.021,
+      "key": 5.186,
+      "loudness": -5.896,
+      "mode": 0.69,
+      "tempo": 128.252,
+      "time_signature": 3.944
+    },
+    "jazz": {
+      "acousticness": 0.738,
+      "danceability": 0.503,
+      "duration_min": 3.082,
+      "energy": 0.337,
+      "explicit": 0.002,
+      "key": 4.533,
+      "loudness": -11.837,
+      "mode": 0.81,
+      "tempo": 111.684,
+      "time_signature": 3.832
+    },
+    "k-pop": {
+      "acousticness": 0.29,
+      "danceability": 0.642,
+      "duration_min": 4.219,
+      "energy": 0.688,
+      "explicit": 0.018,
+      "key": 5.268,
+      "loudness": -6.314,
+      "mode": 0.499,
+      "tempo": 119.822,
+      "time_signature": 3.908
+    },
+    "kids": {
+      "acousticness": 0.238,
+      "danceability": 0.78,
+      "duration_min": 2.611,
+      "energy": 0.613,
+      "explicit": 0.008,
+      "key": 5.104,
+      "loudness": -8.123,
+      "mode": 0.728,
+      "tempo": 121.501,
+      "time_signature": 3.949
+    },
+    "latin": {
+      "acousticness": 0.206,
+      "danceability": 0.697,
+      "duration_min": 3.531,
+      "energy": 0.732,
+      "explicit": 0.101,
+      "key": 5.235,
+      "loudness": -5.209,
+      "mode": 0.583,
+      "tempo": 122.708,
+      "time_signature": 3.948
+    },
+    "latino": {
+      "acousticness": 0.215,
+      "danceability": 0.753,
+      "duration_min": 3.406,
+      "energy": 0.701,
+      "explicit": 0.312,
+      "key": 5.592,
+      "loudness": -5.627,
+      "mode": 0.586,
+      "tempo": 120.993,
+      "time_signature": 3.979
+    },
+    "malay": {
+      "acousticness": 0.404,
+      "danceability": 0.629,
+      "duration_min": 4.248,
+      "energy": 0.578,
+      "explicit": 0.037,
+      "key": 5.152,
+      "loudness": -8.391,
+      "mode": 0.553,
+      "tempo": 119.224,
+      "time_signature": 3.773
+    },
+    "mandopop": {
+      "acousticness": 0.478,
+      "danceability": 0.546,
+      "duration_min": 4.183,
+      "energy": 0.501,
+      "explicit": 0.009,
+      "key": 5.238,
+      "loudness": -8.093,
+      "mode": 0.77,
+      "tempo": 123.522,
+      "time_signature": 3.947
+    },
+    "metal": {
+      "acousticness": 0.035,
+      "danceability": 0.473,
+      "duration_min": 4.316,
+      "energy": 0.833,
+      "explicit": 0.136,
+      "key": 5.578,
+      "loudness": -5.46,
+      "mode": 0.601,
+      "tempo": 127.253,
+      "time_signature": 3.919
+    },
+    "metalcore": {
+      "acousticness": 0.012,
+      "danceability": 0.425,
+      "duration_min": 3.797,
+      "energy": 0.91,
+      "explicit": 0.274,
+      "key": 4.975,
+      "loudness": -4.517,
+      "mode": 0.511,
+      "tempo": 129.786,
+      "time_signature": 3.936
+    },
+    "minimal-techno": {
+      "acousticness": 0.067,
+      "danceability": 0.731,
+      "duration_min": 6.21,
+      "energy": 0.686,
+      "explicit": 0.004,
+      "key": 5.466,
+      "loudness": -9.72,
+      "mode": 0.528,
+      "tempo": 125.091,
+      "time_signature": 3.95
+    },
+    "mpb": {
+      "acousticness": 0.441,
+      "danceability": 0.573,
+      "duration_min": 3.8,
+      "energy": 0.562,
+      "explicit": 0.005,
+      "key": 5.613,
+      "loudness": -9.226,
+      "mode": 0.71,
+      "tempo": 119.276,
+      "time_signature": 3.901
+    },
+    "new-age": {
+      "acousticness": 0.82,
+      "danceability": 0.351,
+      "duration_min": 5.044,
+      "energy": 0.216,
+      "explicit": 0.005,
+      "key": 4.619,
+      "loudness": -18.589,
+      "mode": 0.646,
+      "tempo": 107.764,
+      "time_signature": 3.722
+    },
+    "opera": {
+      "acousticness": 0.812,
+      "danceability": 0.312,
+      "duration_min": 3.872,
+      "energy": 0.308,
+      "explicit": 0.001,
+      "key": 5.124,
+      "loudness": -13.72,
+      "mode": 0.759,
+      "tempo": 105.391,
+      "time_signature": 3.67
+    },
+    "pagode": {
+      "acousticness": 0.549,
+      "danceability": 0.572,
+      "duration_min": 3.84,
+      "energy": 0.713,
+      "explicit": 0.017,
+      "key": 5.181,
+      "loudness": -7.271,
+      "mode": 0.705,
+      "tempo": 127.152,
+      "time_signature": 4.0
+    },
+    "party": {
+      "acousticness": 0.091,
+      "danceability": 0.667,
+      "duration_min": 3.351,
+      "energy": 0.871,
+      "explicit": 0.043,
+      "key": 5.341,
+      "loudness": -4.415,
+      "mode": 0.761,
+      "tempo": 131.602,
+      "time_signature": 3.964
+    },
+    "piano": {
+      "acousticness": 0.696,
+      "danceability": 0.458,
+      "duration_min": 3.383,
+      "energy": 0.324,
+      "explicit": 0.014,
+      "key": 5.043,
+      "loudness": -17.171,
+      "mode": 0.724,
+      "tempo": 117.73,
+      "time_signature": 3.766
+    },
+    "pop": {
+      "acousticness": 0.378,
+      "danceability": 0.609,
+      "duration_min": 3.701,
+      "energy": 0.598,
+      "explicit": 0.065,
+      "key": 5.385,
+      "loudness": -7.043,
+      "mode": 0.511,
+      "tempo": 120.496,
+      "time_signature": 3.811
+    },
+    "pop-film": {
+      "acousticness": 0.441,
+      "danceability": 0.593,
+      "duration_min": 4.762,
+      "energy": 0.603,
+      "explicit": 0.0,
+      "key": 5.349,
+      "loudness": -7.996,
+      "mode": 0.551,
+      "tempo": 116.252,
+      "time_signature": 3.896
+    },
+    "power-pop": {
+      "acousticness": 0.085,
+      "danceability": 0.472,
+      "duration_min": 3.086,
+      "energy": 0.806,
+      "explicit": 0.036,
+      "key": 5.112,
+      "loudness": -6.656,
+      "mode": 0.787,
+      "tempo": 134.997,
+      "time_signature": 3.971
+    },
+    "progressive-house": {
+      "acousticness": 0.062,
+      "danceability": 0.624,
+      "duration_min": 3.421,
+      "energy": 0.814,
+      "explicit": 0.056,
+      "key": 5.384,
+      "loudness": -5.344,
+      "mode": 0.474,
+      "tempo": 125.211,
+      "time_signature": 3.978
+    },
+    "psych-rock": {
+      "acousticness": 0.339,
+      "danceability": 0.494,
+      "duration_min": 3.996,
+      "energy": 0.551,
+      "explicit": 0.016,
+      "key": 5.183,
+      "loudness": -10.437,
+      "mode": 0.63,
+      "tempo": 120.237,
+      "time_signature": 3.884
+    },
+    "punk": {
+      "acousticness": 0.107,
+      "danceability": 0.502,
+      "duration_min": 3.666,
+      "energy": 0.799,
+      "explicit": 0.125,
+      "key": 5.289,
+      "loudness": -5.68,
+      "mode": 0.758,
+      "tempo": 134.055,
+      "time_signature": 3.945
+    },
+    "punk-rock": {
+      "acousticness": 0.08,
+      "danceability": 0.515,
+      "duration_min": 3.587,
+      "energy": 0.811,
+      "explicit": 0.089,
+      "key": 5.155,
+      "loudness": -5.858,
+      "mode": 0.691,
+      "tempo": 132.8,
+      "time_signature": 3.969
+    },
+    "r-n-b": {
+      "acousticness": 0.379,
+      "danceability": 0.63,
+      "duration_min": 3.611,
+      "energy": 0.617,
+      "explicit": 0.134,
+      "key": 5.484,
+      "loudness": -7.381,
+      "mode": 0.705,
+      "tempo": 123.306,
+      "time_signature": 3.832
+    },
+    "reggae": {
+      "acousticness": 0.18,
+      "danceability": 0.743,
+      "duration_min": 3.598,
+      "energy": 0.725,
+      "explicit": 0.164,
+      "key": 5.495,
+      "loudness": -5.343,
+      "mode": 0.562,
+      "tempo": 119.263,
+      "time_signature": 3.996
+    },
+    "reggaeton": {
+      "acousticness": 0.167,
+      "danceability": 0.75,
+      "duration_min": 3.591,
+      "energy": 0.727,
+      "explicit": 0.216,
+      "key": 5.494,
+      "loudness": -5.123,
+      "mode": 0.464,
+      "tempo": 123.003,
+      "time_signature": 4.0
+    },
+    "rock": {
+      "acousticness": 0.227,
+      "danceability": 0.552,
+      "duration_min": 3.561,
+      "energy": 0.642,
+      "explicit": 0.028,
+      "key": 5.422,
+      "loudness": -7.033,
+      "mode": 0.699,
+      "tempo": 123.939,
+      "time_signature": 3.938
+    },
+    "rock-n-roll": {
+      "acousticness": 0.548,
+      "danceability": 0.552,
+      "duration_min": 2.931,
+      "energy": 0.525,
+      "explicit": 0.002,
+      "key": 5.172,
+      "loudness": -9.217,
+      "mode": 0.828,
+      "tempo": 120.647,
+      "time_signature": 3.865
+    },
+    "rockabilly": {
+      "acousticness": 0.423,
+      "danceability": 0.561,
+      "duration_min": 2.869,
+      "energy": 0.661,
+      "explicit": 0.006,
+      "key": 5.475,
+      "loudness": -8.175,
+      "mode": 0.739,
+      "tempo": 122.397,
+      "time_signature": 3.904
+    },
+    "romance": {
+      "acousticness": 0.864,
+      "danceability": 0.432,
+      "duration_min": 3.365,
+      "energy": 0.299,
+      "explicit": 0.004,
+      "key": 5.201,
+      "loudness": -13.093,
+      "mode": 0.351,
+      "tempo": 109.817,
+      "time_signature": 3.684
+    },
+    "sad": {
+      "acousticness": 0.467,
+      "danceability": 0.695,
+      "duration_min": 2.545,
+      "energy": 0.467,
+      "explicit": 0.47,
+      "key": 5.376,
+      "loudness": -10.163,
+      "mode": 0.622,
+      "tempo": 119.477,
+      "time_signature": 3.974
+    },
+    "salsa": {
+      "acousticness": 0.468,
+      "danceability": 0.669,
+      "duration_min": 4.585,
+      "energy": 0.724,
+      "explicit": 0.003,
+      "key": 5.104,
+      "loudness": -6.94,
+      "mode": 0.62,
+      "tempo": 119.827,
+      "time_signature": 3.988
+    },
+    "samba": {
+      "acousticness": 0.491,
+      "danceability": 0.574,
+      "duration_min": 3.748,
+      "energy": 0.682,
+      "explicit": 0.001,
+      "key": 5.095,
+      "loudness": -8.333,
+      "mode": 0.672,
+      "tempo": 117.712,
+      "time_signature": 3.974
+    },
+    "sertanejo": {
+      "acousticness": 0.438,
+      "danceability": 0.593,
+      "duration_min": 3.38,
+      "energy": 0.706,
+      "explicit": 0.007,
+      "key": 5.406,
+      "loudness": -5.414,
+      "mode": 0.843,
+      "tempo": 126.276,
+      "time_signature": 3.867
+    },
+    "show-tunes": {
+      "acousticness": 0.635,
+      "danceability": 0.467,
+      "duration_min": 3.474,
+      "energy": 0.4,
+      "explicit": 0.019,
+      "key": 4.998,
+      "loudness": -10.578,
+      "mode": 0.768,
+      "tempo": 114.572,
+      "time_signature": 3.792
+    },
+    "singer-songwriter": {
+      "acousticness": 0.559,
+      "danceability": 0.572,
+      "duration_min": 3.637,
+      "energy": 0.43,
+      "explicit": 0.039,
+      "key": 4.857,
+      "loudness": -9.714,
+      "mode": 0.841,
+      "tempo": 119.776,
+      "time_signature": 3.883
+    },
+    "ska": {
+      "acousticness": 0.128,
+      "danceability": 0.584,
+      "duration_min": 3.71,
+      "energy": 0.799,
+      "explicit": 0.024,
+      "key": 5.364,
+      "loudness": -6.194,
+      "mode": 0.701,
+      "tempo": 128.586,
+      "time_signature": 3.966
+    },
+    "sleep": {
+      "acousticness": 0.657,
+      "danceability": 0.168,
+      "duration_min": 3.068,
+      "energy": 0.342,
+      "explicit": 0.0,
+      "key": 4.93,
+      "loudness": -24.194,
+      "mode": 0.707,
+      "tempo": 84.619,
+      "time_signature": 3.132
+    },
+    "songwriter": {
+      "acousticness": 0.574,
+      "danceability": 0.552,
+      "duration_min": 3.509,
+      "energy": 0.411,
+      "explicit": 0.085,
+      "key": 5.775,
+      "loudness": -10.07,
+      "mode": 0.873,
+      "tempo": 124.035,
+      "time_signature": 3.796
+    },
+    "soul": {
+      "acousticness": 0.371,
+      "danceability": 0.629,
+      "duration_min": 3.369,
+      "energy": 0.554,
+      "explicit": 0.149,
+      "key": 4.642,
+      "loudness": -7.814,
+      "mode": 0.688,
+      "tempo": 115.408,
+      "time_signature": 3.93
+    },
+    "spanish": {
+      "acousticness": 0.271,
+      "danceability": 0.602,
+      "duration_min": 3.873,
+      "energy": 0.706,
+      "explicit": 0.038,
+      "key": 5.324,
+      "loudness": -6.567,
+      "mode": 0.654,
+      "tempo": 122.837,
+      "time_signature": 3.943
+    },
+    "study": {
+      "acousticness": 0.531,
+      "danceability": 0.685,
+      "duration_min": 2.359,
+      "energy": 0.411,
+      "explicit": 0.0,
+      "key": 5.419,
+      "loudness": -10.847,
+      "mode": 0.502,
+      "tempo": 111.818,
+      "time_signature": 3.944
+    },
+    "swedish": {
+      "acousticness": 0.335,
+      "danceability": 0.591,
+      "duration_min": 3.452,
+      "energy": 0.617,
+      "explicit": 0.091,
+      "key": 5.607,
+      "loudness": -7.859,
+      "mode": 0.716,
+      "tempo": 120.962,
+      "time_signature": 3.945
+    },
+    "synth-pop": {
+      "acousticness": 0.153,
+      "danceability": 0.617,
+      "duration_min": 4.113,
+      "energy": 0.714,
+      "explicit": 0.039,
+      "key": 4.904,
+      "loudness": -8.182,
+      "mode": 0.613,
+      "tempo": 122.994,
+      "time_signature": 3.979
+    },
+    "tango": {
+      "acousticness": 0.846,
+      "danceability": 0.538,
+      "duration_min": 3.048,
+      "energy": 0.373,
+      "explicit": 0.0,
+      "key": 4.921,
+      "loudness": -10.06,
+      "mode": 0.479,
+      "tempo": 114.531,
+      "time_signature": 3.814
+    },
+    "techno": {
+      "acousticness": 0.076,
+      "danceability": 0.681,
+      "duration_min": 5.149,
+      "energy": 0.756,
+      "explicit": 0.03,
+      "key": 5.555,
+      "loudness": -7.933,
+      "mode": 0.574,
+      "tempo": 128.281,
+      "time_signature": 3.962
+    },
+    "trance": {
+      "acousticness": 0.035,
+      "danceability": 0.582,
+      "duration_min": 4.637,
+      "energy": 0.846,
+      "explicit": 0.018,
+      "key": 5.671,
+      "loudness": -6.4,
+      "mode": 0.489,
+      "tempo": 134.164,
+      "time_signature": 3.957
+    },
+    "trip-hop": {
+      "acousticness": 0.226,
+      "danceability": 0.638,
+      "duration_min": 4.61,
+      "energy": 0.622,
+      "explicit": 0.041,
+      "key": 5.521,
+      "loudness": -9.252,
+      "mode": 0.484,
+      "tempo": 118.835,
+      "time_signature": 3.942
+    },
+    "turkish": {
+      "acousticness": 0.305,
+      "danceability": 0.624,
+      "duration_min": 3.626,
+      "energy": 0.618,
+      "explicit": 0.24,
+      "key": 5.569,
+      "loudness": -8.163,
+      "mode": 0.329,
+      "tempo": 121.049,
+      "time_signature": 3.936
+    },
+    "world-music": {
+      "acousticness": 0.3,
+      "danceability": 0.414,
+      "duration_min": 4.927,
+      "energy": 0.534,
+      "explicit": 0.0,
+      "key": 5.342,
+      "loudness": -9.456,
+      "mode": 0.865,
+      "tempo": 121.172,
+      "time_signature": 3.848
+    }
+  },
+  "global_avg_popularity": 33.2,
+  "importance": {
+    "acousticness": 0.020076606444013764,
+    "artist_avg_popularity": 0.7967129457131582,
+    "danceability": 0.019287826560133496,
+    "duration_min": 0.016100397931836288,
+    "energy": 0.017155052695259514,
+    "explicit": 0.0017480981942832304,
+    "instrumentalness": 0.0149227986017375,
+    "key": 0.00817991945615843,
+    "liveness": 0.018963290790727394,
+    "loudness": 0.01949900245358299,
+    "mode": 0.0017750270202981431,
+    "speechiness": 0.021408118022830058,
+    "tempo": 0.02313726665351211,
+    "time_signature": 0.0016055764451392996,
+    "valence": 0.019428073017329496
+  },
+  "mae": 14.4,
+  "n_estimators": 50,
+  "pred_max": 63.221,
+  "pred_min": 0.075,
+  "r2": 0.445,
+  "r2_base": 0.183,
+  "ranges": {
+    "acousticness": {
+      "max": 0.996,
+      "mean": 0.328,
+      "min": 0.0
+    },
+    "artist_avg_popularity": {
+      "max": 100.0,
+      "mean": 33.2,
+      "min": 0.0
+    },
+    "danceability": {
+      "max": 0.985,
+      "mean": 0.562,
+      "min": 0.0
+    },
+    "duration_min": {
+      "max": 87.29,
+      "mean": 3.819,
+      "min": 0.14
+    },
+    "energy": {
+      "max": 1.0,
+      "mean": 0.634,
+      "min": 0.0
+    },
+    "explicit": {
+      "max": 1.0,
+      "mean": 0.086,
+      "min": 0.0
+    },
+    "instrumentalness": {
+      "max": 1.0,
+      "mean": 0.173,
+      "min": 0.0
+    },
+    "key": {
+      "max": 11.0,
+      "mean": 5.284,
+      "min": 0.0
+    },
+    "liveness": {
+      "max": 1.0,
+      "mean": 0.217,
+      "min": 0.0
+    },
+    "loudness": {
+      "max": 4.532,
+      "mean": -8.499,
+      "min": -49.531
+    },
+    "mode": {
+      "max": 1.0,
+      "mean": 0.637,
+      "min": 0.0
+    },
+    "speechiness": {
+      "max": 0.965,
+      "mean": 0.087,
+      "min": 0.0
+    },
+    "tempo": {
+      "max": 243.372,
+      "mean": 122.058,
+      "min": 0.0
+    },
+    "time_signature": {
+      "max": 5.0,
+      "mean": 3.897,
+      "min": 0.0
+    },
+    "valence": {
+      "max": 0.995,
+      "mean": 0.469,
+      "min": 0.0
+    }
+  },
+  "recommended": {
+    "acousticness": 0.219,
+    "danceability": 0.634,
+    "energy": 0.661,
+    "loudness": -6.521,
+    "tempo": 119.015
+  },
+  "schema_version": 3,
+  "slider_features": [
+    "danceability",
+    "energy",
+    "loudness",
+    "acousticness",
+    "tempo"
+  ],
+  "upload_features": [
+    "danceability",
+    "energy",
+    "loudness",
+    "acousticness",
+    "tempo"
+  ],
+  "upload_metrics": {
+    "artist_grouped_r2_mean": 0.006,
+    "artist_grouped_r2_std": 0.017,
+    "calibration": {
+      "0-20": {
+        "actual_mean": 10.98,
+        "n": 1930,
+        "predicted_mean": 9.89
+      },
+      "20-40": {
+        "actual_mean": 34.3,
+        "n": 12040,
+        "predicted_mean": 32.44
+      },
+      "40-60": {
+        "actual_mean": 40.62,
+        "n": 3925,
+        "predicted_mean": 44.0
+      },
+      "60-80": {
+        "actual_mean": 54.45,
+        "n": 53,
+        "predicted_mean": 64.1
+      }
+    },
+    "error_by_popularity": {
+      "0-20": {
+        "mae": 17.37,
+        "n": 4991
+      },
+      "20-40": {
+        "mae": 7.66,
+        "n": 6047
+      },
+      "40-60": {
+        "mae": 13.59,
+        "n": 5162
+      },
+      "60-80": {
+        "mae": 30.27,
+        "n": 1646
+      },
+      "80-100": {
+        "mae": 47.34,
+        "n": 102
+      }
+    },
+    "genre_mae": {
+      "acoustic": {
+        "mae": 13.77,
+        "n": 187
+      },
+      "afrobeat": {
+        "mae": 13.97,
+        "n": 192
+      },
+      "alt-rock": {
+        "mae": 22.95,
+        "n": 103
+      },
+      "alternative": {
+        "mae": 23.86,
+        "n": 81
+      },
+      "ambient": {
+        "mae": 19.04,
+        "n": 166
+      },
+      "anime": {
+        "mae": 14.85,
+        "n": 153
+      },
+      "black-metal": {
+        "mae": 9.49,
+        "n": 187
+      },
+      "bluegrass": {
+        "mae": 11.86,
+        "n": 194
+      },
+      "blues": {
+        "mae": 15.96,
+        "n": 113
+      },
+      "brazil": {
+        "mae": 9.37,
+        "n": 124
+      },
+      "breakbeat": {
+        "mae": 15.54,
+        "n": 180
+      },
+      "british": {
+        "mae": 21.84,
+        "n": 150
+      },
+      "cantopop": {
+        "mae": 12.13,
+        "n": 180
+      },
+      "chicago-house": {
+        "mae": 15.99,
+        "n": 176
+      },
+      "children": {
+        "mae": 12.73,
+        "n": 192
+      },
+      "chill": {
+        "mae": 21.1,
+        "n": 165
+      },
+      "classical": {
+        "mae": 19.35,
+        "n": 166
+      },
+      "club": {
+        "mae": 13.54,
+        "n": 213
+      },
+      "comedy": {
+        "mae": 7.11,
+        "n": 197
+      },
+      "country": {
+        "mae": 16.76,
+        "n": 191
+      },
+      "dance": {
+        "mae": 23.53,
+        "n": 121
+      },
+      "dancehall": {
+        "mae": 16.19,
+        "n": 182
+      },
+      "death-metal": {
+        "mae": 10.53,
+        "n": 174
+      },
+      "deep-house": {
+        "mae": 16.82,
+        "n": 151
+      },
+      "detroit-techno": {
+        "mae": 16.26,
+        "n": 189
+      },
+      "disco": {
+        "mae": 15.46,
+        "n": 149
+      },
+      "disney": {
+        "mae": 10.17,
+        "n": 186
+      },
+      "drum-and-bass": {
+        "mae": 13.25,
+        "n": 180
+      },
+      "dub": {
+        "mae": 10.72,
+        "n": 105
+      },
+      "dubstep": {
+        "mae": 9.01,
+        "n": 123
+      },
+      "edm": {
+        "mae": 21.8,
+        "n": 107
+      },
+      "electro": {
+        "mae": 25.42,
+        "n": 94
+      },
+      "electronic": {
+        "mae": 14.38,
+        "n": 146
+      },
+      "emo": {
+        "mae": 15.5,
+        "n": 142
+      },
+      "folk": {
+        "mae": 14.01,
+        "n": 136
+      },
+      "forro": {
+        "mae": 5.77,
+        "n": 191
+      },
+      "french": {
+        "mae": 13.45,
+        "n": 204
+      },
+      "funk": {
+        "mae": 14.49,
+        "n": 143
+      },
+      "garage": {
+        "mae": 13.63,
+        "n": 189
+      },
+      "german": {
+        "mae": 13.49,
+        "n": 171
+      },
+      "gospel": {
+        "mae": 5.82,
+        "n": 165
+      },
+      "goth": {
+        "mae": 12.67,
+        "n": 185
+      },
+      "grindcore": {
+        "mae": 9.89,
+        "n": 207
+      },
+      "groove": {
+        "mae": 15.19,
+        "n": 152
+      },
+      "grunge": {
+        "mae": 17.26,
+        "n": 157
+      },
+      "guitar": {
+        "mae": 11.29,
+        "n": 194
+      },
+      "happy": {
+        "mae": 12.36,
+        "n": 172
+      },
+      "hard-rock": {
+        "mae": 20.77,
+        "n": 108
+      },
+      "hardcore": {
+        "mae": 13.02,
+        "n": 143
+      },
+      "hardstyle": {
+        "mae": 11.43,
+        "n": 177
+      },
+      "heavy-metal": {
+        "mae": 10.08,
+        "n": 193
+      },
+      "hip-hop": {
+        "mae": 21.09,
+        "n": 153
+      },
+      "honky-tonk": {
+        "mae": 18.99,
+        "n": 206
+      },
+      "house": {
+        "mae": 23.91,
+        "n": 88
+      },
+      "idm": {
+        "mae": 16.16,
+        "n": 213
+      },
+      "indian": {
+        "mae": 15.11,
+        "n": 155
+      },
+      "indie": {
+        "mae": 21.06,
+        "n": 82
+      },
+      "indie-pop": {
+        "mae": 21.23,
+        "n": 89
+      },
+      "industrial": {
+        "mae": 11.84,
+        "n": 176
+      },
+      "iranian": {
+        "mae": 24.54,
+        "n": 181
+      },
+      "j-dance": {
+        "mae": 15.73,
+        "n": 171
+      },
+      "j-idol": {
+        "mae": 13.08,
+        "n": 187
+      },
+      "j-pop": {
+        "mae": 12.51,
+        "n": 123
+      },
+      "j-rock": {
+        "mae": 8.68,
+        "n": 117
+      },
+      "jazz": {
+        "mae": 9.68,
+        "n": 160
+      },
+      "k-pop": {
+        "mae": 19.87,
+        "n": 173
+      },
+      "kids": {
+        "mae": 19.22,
+        "n": 202
+      },
+      "latin": {
+        "mae": 22.47,
+        "n": 80
+      },
+      "latino": {
+        "mae": 24.32,
+        "n": 75
+      },
+      "malay": {
+        "mae": 11.41,
+        "n": 196
+      },
+      "mandopop": {
+        "mae": 14.11,
+        "n": 216
+      },
+      "metal": {
+        "mae": 27.52,
+        "n": 97
+      },
+      "metalcore": {
+        "mae": 16.17,
+        "n": 165
+      },
+      "minimal-techno": {
+        "mae": 13.35,
+        "n": 164
+      },
+      "mpb": {
+        "mae": 7.76,
+        "n": 170
+      },
+      "new-age": {
+        "mae": 10.36,
+        "n": 194
+      },
+      "opera": {
+        "mae": 11.59,
+        "n": 183
+      },
+      "pagode": {
+        "mae": 7.78,
+        "n": 176
+      },
+      "party": {
+        "mae": 10.46,
+        "n": 182
+      },
+      "piano": {
+        "mae": 20.72,
+        "n": 181
+      },
+      "pop": {
+        "mae": 25.82,
+        "n": 136
+      },
+      "pop-film": {
+        "mae": 21.81,
+        "n": 134
+      },
+      "power-pop": {
+        "mae": 12.68,
+        "n": 179
+      },
+      "progressive-house": {
+        "mae": 17.57,
+        "n": 137
+      },
+      "psych-rock": {
+        "mae": 15.84,
+        "n": 153
+      },
+      "punk": {
+        "mae": 14.12,
+        "n": 92
+      },
+      "punk-rock": {
+        "mae": 11.32,
+        "n": 116
+      },
+      "r-n-b": {
+        "mae": 10.68,
+        "n": 143
+      },
+      "reggae": {
+        "mae": 20.46,
+        "n": 86
+      },
+      "reggaeton": {
+        "mae": 20.64,
+        "n": 66
+      },
+      "rock": {
+        "mae": 21.68,
+        "n": 110
+      },
+      "rock-n-roll": {
+        "mae": 9.22,
+        "n": 166
+      },
+      "rockabilly": {
+        "mae": 11.78,
+        "n": 147
+      },
+      "romance": {
+        "mae": 21.75,
+        "n": 167
+      },
+      "sad": {
+        "mae": 16.65,
+        "n": 154
+      },
+      "salsa": {
+        "mae": 9.56,
+        "n": 195
+      },
+      "samba": {
+        "mae": 5.08,
+        "n": 165
+      },
+      "sertanejo": {
+        "mae": 10.06,
+        "n": 166
+      },
+      "show-tunes": {
+        "mae": 13.86,
+        "n": 191
+      },
+      "singer-songwriter": {
+        "mae": 19.9,
+        "n": 69
+      },
+      "ska": {
+        "mae": 6.1,
+        "n": 155
+      },
+      "sleep": {
+        "mae": 12.19,
+        "n": 203
+      },
+      "songwriter": {
+        "mae": 17.38,
+        "n": 69
+      },
+      "soul": {
+        "mae": 20.56,
+        "n": 115
+      },
+      "spanish": {
+        "mae": 16.31,
+        "n": 181
+      },
+      "study": {
+        "mae": 13.51,
+        "n": 204
+      },
+      "swedish": {
+        "mae": 11.69,
+        "n": 185
+      },
+      "synth-pop": {
+        "mae": 14.62,
+        "n": 184
+      },
+      "tango": {
+        "mae": 10.95,
+        "n": 217
+      },
+      "techno": {
+        "mae": 14.98,
+        "n": 144
+      },
+      "trance": {
+        "mae": 11.83,
+        "n": 164
+      },
+      "trip-hop": {
+        "mae": 15.36,
+        "n": 177
+      },
+      "turkish": {
+        "mae": 7.02,
+        "n": 172
+      },
+      "world-music": {
+        "mae": 9.54,
+        "n": 205
+      }
+    },
+    "random_split_mae": 14.4,
+    "random_split_r2": 0.183
+  }
+}

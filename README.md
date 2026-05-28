@@ -30,8 +30,8 @@ No Spotify API key is needed. Everything runs locally.
 
 ```
 analysisProject/
-  APP.py            Flask server — routes + audio feature extraction
-  analyze.py        Trains the Random Forest model, saves model.pkl
+  APP.py            Flask server — routes, lazy model loading, audio extraction
+  analyze.py        Trains the Random Forest model and writes model artifacts
   clean.py          Preprocesses dataset.csv into cleaned.csv
   config.py         Shared feature lists (SLIDER_FEATURES, EXTRA_FEATURES)
   index.html        Single-page UI (upload, gauge, insights, importance chart)
@@ -40,7 +40,8 @@ analysisProject/
   eda.py            Standalone EDA script (popularity distribution charts)
   genre_analysis.py Per-genre model analysis script
   cleaned.csv       Preprocessed dataset (tracked in git, 15 MB)
-  model.pkl         Trained model (joblib-compressed, ~38 MB; regenerate with analyze.py)
+  model.pkl         Trained model (joblib-compressed, ~80 MB)
+  model_metadata.json Lightweight metadata loaded at server startup
   requirements.txt  Python dependencies
   render.yaml       Render deployment config
   .python-version   Pins Python 3.11.9 for Render
@@ -63,7 +64,7 @@ cd music-popularity-analysis
 # Install dependencies
 pip install -r requirements.txt
 
-# Train the model (uses cleaned.csv already in the repo)
+# Optional: retrain model.pkl and model_metadata.json from cleaned.csv
 python3 analyze.py
 
 # Start the server
@@ -120,18 +121,20 @@ See [`analysis.ipynb`](analysis.ipynb) for the full exploratory data analysis an
 The app is deployed on [Render](https://render.com) free tier (512 MB RAM).
 
 **Key deployment details:**
-- `render.yaml` configures the build command (`pip install && python3 analyze.py`) and start command (`gunicorn`)
+- `render.yaml` installs dependencies during build and starts the app with `gunicorn`
 - `.python-version` pins Python 3.11.9 (Render defaults to 3.14 which causes compatibility issues)
-- `model.pkl` is compressed with `joblib`; schema v3 stores both context and upload models, so regenerate it during builds rather than editing it manually
+- `model_metadata.json` is loaded at startup so `/`, `/meta`, and `/health` don't unpickle the 80 MB model
+- `model.pkl` is compressed with `joblib`; schema v3 stores both context and upload models, and `/predict` loads it lazily on first use
 - `librosa` is lazy-loaded on first audio upload request to keep startup memory low
 - `soundfile` and `soxr` are pinned explicitly because the app imports them for low-memory audio loading and resampling
-- Env vars: `PYTHON_VERSION=3.11.9`, `NUMBA_DISABLE_JIT=1` (skips slow JIT compilation)
+- Env vars: `PYTHON_VERSION=3.11.9`, `NUMBA_CACHE_DIR=/tmp/numba-cache`, `NUMBA_NUM_THREADS=1`
 
 ### Self-hosting
 
 ```bash
 pip install -r requirements.txt
-python3 analyze.py                  # generates model.pkl (~38 MB)
+# Run this only when regenerating artifacts from cleaned.csv
+python3 analyze.py                  # generates model.pkl and model_metadata.json
 gunicorn APP:app --bind 0.0.0.0:$PORT --timeout 120
 ```
 
