@@ -333,7 +333,7 @@ def train() -> None:
 
     joblib_dump(payload, "model.pkl", compress=9)
 
-    logger.info("Saved model.pkl and model_metadata.json — ready to run: python3 APP.py")
+    logger.info("Saved model.pkl and model_metadata.json — ready to run: python3 app.py")
 
 
 def _prewarm_numba() -> None:

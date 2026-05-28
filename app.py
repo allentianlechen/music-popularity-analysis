@@ -3,7 +3,7 @@ app.py — Step 3: Web Server
 ============================
 Serves the webpage and handles popularity predictions.
 Install: pip3 install flask scikit-learn
-Run:     python3 APP.py
+Run:     python3 app.py
 Then open: http://127.0.0.1:8080
 """
 
@@ -243,7 +243,7 @@ n_estimators     = metadata["n_estimators"]
 # classifier is intentionally not extracted — tier is determined client-side
 
 LATEST_RESEARCH_BENCHMARK: dict[str, Any] = {
-    "source": "popularity_random_forest_research.ipynb",
+    "source": "notebooks/popularity_random_forest_research.ipynb",
     "summary": (
         "Latest held-out research run: a full-feature Random Forest using the "
         "Kaggle audio variables plus one-hot genre indicators performed best. "

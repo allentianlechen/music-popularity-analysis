@@ -1,5 +1,5 @@
 # config.py — shared feature configuration
-# Import in analyze.py and APP.py to keep feature lists in sync
+# Import in analyze.py and app.py to keep feature lists in sync
 
 SLIDER_FEATURES = [
     "danceability", "energy", "loudness", "speechiness",

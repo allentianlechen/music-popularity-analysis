@@ -1,3 +1,10 @@
+# Local app/tool caches
+.cache
+.codex/
+.claude/
+.pytest_cache/
+.ipynb_checkpoints/
+
 # Large raw data — download from Kaggle (Spotify Tracks Dataset)
 dataset.csv
 archive.zip

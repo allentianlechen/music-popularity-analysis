@@ -30,21 +30,20 @@ No Spotify API key is needed. Everything runs locally.
 
 ```
 analysisProject/
-  APP.py            Flask server — routes, lazy model loading, audio extraction
-  analyze.py        Trains the Random Forest model and writes model artifacts
-  clean.py          Preprocesses dataset.csv into cleaned.csv
-  config.py         Shared feature lists (SLIDER_FEATURES, EXTRA_FEATURES)
-  index.html        Single-page UI (upload, gauge, insights, importance chart)
-  test_app.py       pytest test suite
-  analysis.ipynb    Comprehensive EDA, model comparison, SHAP, residual analysis
-  eda.py            Standalone EDA script (popularity distribution charts)
-  genre_analysis.py Per-genre model analysis script
-  cleaned.csv       Preprocessed dataset (tracked in git, 15 MB)
-  model.pkl         Trained model (joblib-compressed, ~80 MB)
+  app.py              Flask server and local entrypoint
+  index.html          Single-page UI
+  requirements.txt    Runtime Python dependencies
+  Makefile            Short commands for setup, start, test, and analyze
+  render.yaml         Render deployment config
+  cleaned.csv         Preprocessed dataset used by analyze.py
+  model.pkl           Trained Random Forest models
   model_metadata.json Lightweight metadata loaded at server startup
-  requirements.txt  Python dependencies
-  render.yaml       Render deployment config
-  .python-version   Pins Python 3.11.9 for Render
+  analyze.py          Trains model.pkl and model_metadata.json
+  clean.py            Preprocesses dataset.csv into cleaned.csv
+  config.py           Shared feature-list constants
+  test_app.py         pytest test suite
+  notebooks/          Research notebooks
+  docs/               Planning notes, implementation logs, and preview files
 ```
 
 ## Running Locally
@@ -61,17 +60,29 @@ analysisProject/
 git clone https://github.com/allentianlechen/music-popularity-analysis.git
 cd music-popularity-analysis
 
-# Install dependencies
+# Install dependencies once
 pip install -r requirements.txt
 
-# Optional: retrain model.pkl and model_metadata.json from cleaned.csv
-python3 analyze.py
-
 # Start the server
-python3 APP.py
+python3 app.py
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser.
+
+You can also use the included `Makefile`:
+
+```bash
+make setup
+make start
+make test
+```
+
+Regenerate `model.pkl` and `model_metadata.json` only when you need to retrain
+from `cleaned.csv`:
+
+```bash
+make analyze
+```
 
 ### Running Tests
 
@@ -105,7 +116,7 @@ The gap between context and audio-only R² reflects reality: song popularity is 
 
 ## Analysis & Findings
 
-See [`analysis.ipynb`](analysis.ipynb) for the full exploratory data analysis and model comparison.
+See [`notebooks/analysis.ipynb`](notebooks/analysis.ipynb) for the full exploratory data analysis and model comparison.
 
 **Key findings:**
 
@@ -135,7 +146,7 @@ The app is deployed on [Render](https://render.com) free tier (512 MB RAM).
 pip install -r requirements.txt
 # Run this only when regenerating artifacts from cleaned.csv
 python3 analyze.py                  # generates model.pkl and model_metadata.json
-gunicorn APP:app --bind 0.0.0.0:$PORT --timeout 120
+gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
 ```
 
 The `--timeout 120` flag is needed because audio analysis can take up to 60 seconds for long files.

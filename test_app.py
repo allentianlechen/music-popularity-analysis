@@ -1,5 +1,5 @@
 """
-test_app.py — Unit + integration tests for APP.py
+test_app.py — Unit + integration tests for app.py
 Run: python3 -m pytest test_app.py -v
 """
 
@@ -21,10 +21,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 @pytest.fixture(scope="session")
 def client():
     """Flask test client, loaded once per session."""
-    import APP  # noqa: PLC0415  (import inside function is intentional here)
-    APP.app.config["TESTING"] = True
-    APP.app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
-    with APP.app.test_client() as c:
+    import app as app_module  # noqa: PLC0415  (import inside function is intentional here)
+    app_module.app.config["TESTING"] = True
+    app_module.app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+    with app_module.app.test_client() as c:
         yield c
 
 
@@ -60,9 +60,9 @@ class TestMeta:
             assert "min" in rng and "max" in rng and "mean" in rng
 
     def test_model_metadata_consistency(self, meta_data):
-        import APP
+        import app as app_module
         assert meta_data["schema_version"] == 3
-        assert meta_data["n_estimators"] == APP.n_estimators
+        assert meta_data["n_estimators"] == app_module.n_estimators
         assert "r2_base" in meta_data
         assert meta_data["r2_base"] <= meta_data["r2"]
         assert meta_data["model_families"]["upload_audio_only"]["uses_artist_context"] is False
@@ -167,15 +167,15 @@ class TestPredict:
 
     def test_pred_min_equals_pred_max_still_returns_score(self, client):
         """Degenerate case: span == 0 should not divide by zero."""
-        import APP
-        orig_min, orig_max = APP.pred_min, APP.pred_max
-        APP.pred_min = APP.pred_max = 30.0
+        import app as app_module
+        orig_min, orig_max = app_module.pred_min, app_module.pred_max
+        app_module.pred_min = app_module.pred_max = 30.0
         try:
             data = self._post(client, {}).get_json()
             assert "score" in data
             assert 0 <= data["score"] <= 100
         finally:
-            APP.pred_min, APP.pred_max = orig_min, orig_max
+            app_module.pred_min, app_module.pred_max = orig_min, orig_max
 
 
 # ── /analyze-audio ────────────────────────────────────────────────────────────
@@ -338,7 +338,7 @@ class TestStaticFolderDisabled:
         assert res.status_code == 404
 
     def test_app_py_not_served(self, client):
-        res = client.get("/static/APP.py")
+        res = client.get("/static/app.py")
         assert res.status_code == 404
 
 
@@ -373,27 +373,27 @@ class TestAudioFeatureHelpers:
         return {"stft": stft, "freqs": freqs}
 
     def test_compute_tempo_in_valid_range(self, sine_wave):
-        from APP import _compute_tempo, TEMPO_MIN_BPM, TEMPO_MAX_BPM
+        from app import _compute_tempo, TEMPO_MIN_BPM, TEMPO_MAX_BPM
         y, sr = sine_wave
         tempo_val, beat_frames, confidence = _compute_tempo(y, sr)
         assert TEMPO_MIN_BPM <= tempo_val <= TEMPO_MAX_BPM
         assert 0.0 <= confidence <= 1.0
 
     def test_compute_loudness_in_db_range(self, sine_wave):
-        from APP import _compute_loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB
+        from app import _compute_loudness, LOUDNESS_MIN_DB, LOUDNESS_MAX_DB
         y, sr = sine_wave
         loudness, method = _compute_loudness(y, sr)
         assert LOUDNESS_MIN_DB <= loudness <= LOUDNESS_MAX_DB
         assert method
 
     def test_compute_energy_in_0_1(self, sine_wave, shared_features):
-        from APP import _compute_energy
+        from app import _compute_energy
         y, sr = sine_wave
         val = _compute_energy(y, shared_features["stft"], shared_features["freqs"])
         assert 0.0 <= val <= 1.0
 
     def test_compute_danceability_in_0_1(self, sine_wave):
-        from APP import _compute_danceability, _compute_tempo
+        from app import _compute_danceability, _compute_tempo
         y, sr = sine_wave
         _, beat_frames, _ = _compute_tempo(y, sr)
         val = _compute_danceability(y, sr, beat_frames)
@@ -437,7 +437,7 @@ class TestAudioFeatureHelpers:
     # ── ML feature unit tests (gated with pytest.importorskip) ────────────────
 
     def test_compute_speechiness_in_0_1(self, sine_wave, shared_features):
-        from APP import _compute_speechiness
+        from app import _compute_speechiness
         import librosa
         y, sr = sine_wave
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
@@ -445,7 +445,7 @@ class TestAudioFeatureHelpers:
         assert 0.0 <= val <= 1.0
 
     def test_compute_instrumentalness_in_0_1(self, sine_wave, shared_features):
-        from APP import _compute_instrumentalness, _compute_tempo
+        from app import _compute_instrumentalness, _compute_tempo
         import librosa
         y, sr = sine_wave
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
@@ -454,19 +454,19 @@ class TestAudioFeatureHelpers:
         assert 0.0 <= val <= 1.0
 
     def test_compute_acousticness_in_0_1(self, sine_wave):
-        from APP import _compute_acousticness
+        from app import _compute_acousticness
         import librosa
         y, sr = sine_wave
         y_harmonic, _ = librosa.effects.hpss(y)
         assert 0.0 <= _compute_acousticness(y, sr, y_harmonic) <= 1.0
 
     def test_compute_liveness_in_0_1(self, sine_wave):
-        from APP import _compute_liveness
+        from app import _compute_liveness
         y, sr = sine_wave
         assert 0.0 <= _compute_liveness(y, sr) <= 1.0
 
     def test_compute_valence_in_0_1(self, sine_wave, shared_features):
-        from APP import _compute_valence, _compute_tempo
+        from app import _compute_valence, _compute_tempo
         import librosa
         y, sr = sine_wave
         tempo_val, _, _ = _compute_tempo(y, sr)
@@ -559,27 +559,27 @@ class TestArtistAvgTransformer:
 
 class TestModelPayloadValidation:
     def test_missing_required_metadata_key_fails_validation(self):
-        import APP
-        bad_payload = dict(APP.metadata)
+        import app as app_module
+        bad_payload = dict(app_module.metadata)
         bad_payload.pop("schema_version", None)
         with pytest.raises(KeyError, match="schema_version"):
-            APP._validate_model_metadata(bad_payload)
+            app_module._validate_model_metadata(bad_payload)
 
     def test_missing_required_model_key_fails_validation(self):
-        import APP
-        APP._ensure_model_loaded()
-        assert APP.payload is not None
-        bad_payload = dict(APP.payload)
+        import app as app_module
+        app_module._ensure_model_loaded()
+        assert app_module.payload is not None
+        bad_payload = dict(app_module.payload)
         bad_payload.pop("upload_model", None)
         with pytest.raises(KeyError, match="upload_model"):
-            APP._validate_model_payload(bad_payload)
+            app_module._validate_model_payload(bad_payload)
 
     def test_schema_v3_models_present(self):
-        import APP
-        APP._ensure_model_loaded()
-        assert APP.payload is not None
-        APP._validate_model_payload(APP.payload)
-        assert APP.payload["schema_version"] == 3
-        assert APP.payload["context_model"] is not None
-        assert APP.payload["upload_model"] is not None
-        assert APP.payload["upload_features"] == APP.slider_features
+        import app as app_module
+        app_module._ensure_model_loaded()
+        assert app_module.payload is not None
+        app_module._validate_model_payload(app_module.payload)
+        assert app_module.payload["schema_version"] == 3
+        assert app_module.payload["context_model"] is not None
+        assert app_module.payload["upload_model"] is not None
+        assert app_module.payload["upload_features"] == app_module.slider_features
